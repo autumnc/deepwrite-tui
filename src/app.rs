@@ -34,8 +34,7 @@ pub enum AppMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrowserPrompt {
     None,
-    NewFile(String),
-    NewDirectory(String),
+    Create(String),
     Rename(String),
     Delete,
     Search(String),
@@ -188,12 +187,8 @@ impl App {
         if self.show_browser {
             let prompt_info = match &self.prompt {
                 BrowserPrompt::None => None,
-                BrowserPrompt::NewFile(buf) => Some(BrowserPromptInfo {
-                    label: "New file: ",
-                    input: buf,
-                }),
-                BrowserPrompt::NewDirectory(buf) => Some(BrowserPromptInfo {
-                    label: "New dir: ",
+                BrowserPrompt::Create(buf) => Some(BrowserPromptInfo {
+                    label: "Create: ",
                     input: buf,
                 }),
                 BrowserPrompt::Rename(buf) => Some(BrowserPromptInfo {
@@ -547,11 +542,8 @@ impl App {
             }
             KeyCode::Char('.') => self.navigator.toggle_hidden(),
             // ── File browser actions ──
-            KeyCode::Char('n') => {
-                self.prompt = BrowserPrompt::NewFile(String::new());
-            }
-            KeyCode::Char('N') => {
-                self.prompt = BrowserPrompt::NewDirectory(String::new());
+            KeyCode::Char('a') => {
+                self.prompt = BrowserPrompt::Create(String::new());
             }
             KeyCode::Char('r') => {
                 if let Some(entry) = self.navigator.selected_entry() {
@@ -584,8 +576,7 @@ impl App {
             }
             KeyCode::Backspace => {
                 match &mut self.prompt {
-                    BrowserPrompt::NewFile(buf)
-                    | BrowserPrompt::NewDirectory(buf)
+                    BrowserPrompt::Create(buf)
                     | BrowserPrompt::Rename(buf)
                     | BrowserPrompt::Search(buf) => {
                         buf.pop();
@@ -604,8 +595,7 @@ impl App {
             }
             KeyCode::Char(c) => {
                 match &mut self.prompt {
-                    BrowserPrompt::NewFile(buf)
-                    | BrowserPrompt::NewDirectory(buf)
+                    BrowserPrompt::Create(buf)
                     | BrowserPrompt::Rename(buf)
                     | BrowserPrompt::Search(buf) => {
                         buf.push(c);
@@ -639,15 +629,15 @@ impl App {
     fn confirm_prompt(&mut self) {
         let prompt = std::mem::replace(&mut self.prompt, BrowserPrompt::None);
         match prompt {
-            BrowserPrompt::NewFile(name) => {
-                if !name.trim().is_empty() {
-                    let _ = actions::create_file(&self.navigator.current_dir, &name);
-                    self.navigator.refresh();
-                }
-            }
-            BrowserPrompt::NewDirectory(name) => {
-                if !name.trim().is_empty() {
-                    let _ = actions::create_directory(&self.navigator.current_dir, &name);
+            BrowserPrompt::Create(name) => {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    if trimmed.ends_with('/') {
+                        let dir_name = trimmed.trim_end_matches('/');
+                        let _ = actions::create_directory(&self.navigator.current_dir, dir_name);
+                    } else {
+                        let _ = actions::create_file(&self.navigator.current_dir, trimmed);
+                    }
                     self.navigator.refresh();
                 }
             }
@@ -1081,5 +1071,37 @@ mod tests {
         assert_eq!(fs::read_to_string(&file_path).unwrap(), "On disk");
         let conflict_dir = app.data_dir.join("conflicts");
         assert_eq!(fs::read_dir(conflict_dir).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn create_prompt_without_slash_creates_file() {
+        let tmp = TempDir::new().unwrap();
+        let mut app = test_app(&tmp);
+        let a_key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        app.handle_browse_key(a_key);
+        assert_eq!(app.prompt, BrowserPrompt::Create(String::new()));
+        for c in "notes".chars() {
+            let key = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+            app.handle_prompt_key(key);
+        }
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        app.handle_prompt_key(enter);
+        assert!(tmp.path().join("notes.md").exists());
+        assert_eq!(app.prompt, BrowserPrompt::None);
+    }
+
+    #[test]
+    fn create_prompt_with_trailing_slash_creates_directory() {
+        let tmp = TempDir::new().unwrap();
+        let mut app = test_app(&tmp);
+        let a_key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        app.handle_browse_key(a_key);
+        for c in "drafts/".chars() {
+            let key = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+            app.handle_prompt_key(key);
+        }
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        app.handle_prompt_key(enter);
+        assert!(tmp.path().join("drafts").is_dir());
     }
 }

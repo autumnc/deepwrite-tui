@@ -102,7 +102,7 @@ pub fn render_browser_with_prompt(
     // If the directory is empty, show a helpful message instead of an empty list.
     if items.is_empty() {
         let empty_block = block;
-        let msg = Paragraph::new("No Markdown files.\nPress n to create one.")
+        let msg = Paragraph::new("No Markdown files.\nPress a to create one.")
             .style(Style::default().fg(theme.dimmed_fg).bg(theme.bg))
             .block(empty_block);
         frame.render_widget(msg, list_area);
