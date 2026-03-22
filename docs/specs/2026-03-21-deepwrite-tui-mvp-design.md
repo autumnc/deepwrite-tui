@@ -2,11 +2,22 @@
 
 ## Overview
 
-Deepwrite TUI is a terminal-based Markdown writing tool that combines Yazi-style file browsing with iA Writer-style focused writing. It is one of two product lines — the TUI version targets semi-technical users who work with Claude Code and primarily edit Markdown files (skills, specs, documentation), while a native macOS app targets general writers.
+Deepwrite TUI is a terminal-based Markdown writing tool that combines Yazi-style file browsing with iA Writer-style focused writing. It is one of two product lines — the TUI version targets semi-technical users who work with Claude Code and primarily edit Markdown files (skills, specs, documentation) instead of code, while a native macOS app targets general writers.
+
+### The Problem
+
+With the rise of AI coding tools like Claude Code, a new type of user has emerged: **vibe coders** — people with non-technical backgrounds who use AI to write code. They don't read or edit source code directly. But they constantly review and edit the documents that drive the AI's work: specs, implementation plans, context files, skills — all Markdown files.
+
+Today, these users are stuck with bad options in the terminal:
+- **vim/neovim** — too complex, steep learning curve for non-developers
+- **nano** — too basic, no focus mode, no file browsing, no Markdown awareness
+- **iA Writer / Obsidian** — great writing experience, but not in the terminal, can't run alongside Claude Code in a split pane
+
+They need a tool that lets them **browse, read, and edit Markdown files in the terminal** while Claude Code runs in the adjacent pane — with a comfortable, distraction-free writing experience that doesn't require learning Vim.
 
 ### Target Users
 
-Semi-technical users who use AI tools like Claude Code in the terminal. They edit skills, specs, design documents, and notes — primarily Markdown files, not code. They are comfortable with the terminal but don't necessarily know Vim or advanced terminal workflows.
+Semi-technical "vibe coders" who use AI tools like Claude Code in the terminal. They edit specs, implementation plans, context files, and skills — primarily Markdown files, not code. They are comfortable with the terminal but don't necessarily know Vim or advanced terminal workflows.
 
 ### Design Principles
 
