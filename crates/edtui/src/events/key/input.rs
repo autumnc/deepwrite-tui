@@ -117,6 +117,9 @@ pub enum KeyCode {
     End,
     PageUp,
     PageDown,
+    /// Key codes not recognized by edtui (F-keys, Insert, etc.).
+    /// These are silently ignored by the event handler.
+    Unsupported,
 }
 
 impl From<char> for KeyCode {
@@ -143,7 +146,7 @@ impl From<crossterm::event::KeyCode> for KeyCode {
             CTKeyCode::End => KeyCode::End,
             CTKeyCode::PageUp => KeyCode::PageUp,
             CTKeyCode::PageDown => KeyCode::PageDown,
-            _ => unimplemented!(),
+            _ => KeyCode::Unsupported,
         }
     }
 }
