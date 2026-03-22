@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::{prelude::*, widgets::Block};
 
 use deepwrite::browser::actions;
@@ -83,6 +83,7 @@ pub struct App {
     status_message: Option<StatusMessage>,
     last_conflict_backup_content: Option<String>,
     data_dir: PathBuf,
+    browser_rect: Rect,
 }
 
 impl App {
@@ -120,6 +121,7 @@ impl App {
             status_message: None,
             last_conflict_backup_content: None,
             data_dir,
+            browser_rect: Rect::default(),
         }
     }
 
@@ -181,6 +183,7 @@ impl App {
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
         let layout = compute_layout(area, self.config.browser.panel_width, self.show_browser);
+        self.browser_rect = layout.browser;
 
         // Fill background
         let bg_block = Block::default().style(self.theme.base_style());
@@ -417,6 +420,9 @@ impl App {
                     AppMode::Edit => self.handle_edit_key(*key, event.clone()),
                 }
             }
+            Event::Mouse(mouse) => {
+                self.handle_mouse_event(mouse);
+            }
             // Terminal resize: ratatui redraws automatically on the next
             // `terminal.draw()` call. No state invalidation needed — just
             // let the event pass through so the next draw picks up the new size.
@@ -424,6 +430,54 @@ impl App {
             _ => {}
         }
         Ok(())
+    }
+
+    fn handle_mouse_event(&mut self, mouse: &crossterm::event::MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if self.mode == AppMode::Browse && self.show_browser {
+                    let br = self.browser_rect;
+                    // Check if click is within the browser panel area.
+                    if mouse.column >= br.x
+                        && mouse.column < br.x + br.width
+                        && mouse.row >= br.y
+                        && mouse.row < br.y + br.height
+                    {
+                        // The list content starts at br.y (no top border).
+                        // The block has Borders::RIGHT only, so no top/bottom offset.
+                        let clicked_row = (mouse.row - br.y) as usize;
+                        let total = if let Some(ref matches) = self.search_matches {
+                            matches.len()
+                        } else {
+                            self.navigator.entries.len()
+                        };
+                        if clicked_row < total {
+                            if let Some(ref matches) = self.search_matches {
+                                if clicked_row < matches.len() {
+                                    self.navigator.selected = matches[clicked_row];
+                                }
+                            } else {
+                                self.navigator.selected = clicked_row;
+                            }
+                            self.preview_selected_file();
+                        }
+                    }
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                if self.mode == AppMode::Browse {
+                    self.navigator.move_up();
+                    self.preview_selected_file();
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if self.mode == AppMode::Browse {
+                    self.navigator.move_down();
+                    self.preview_selected_file();
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Preview the currently selected file in the editor panel (read-only, no auto-save setup).
