@@ -119,7 +119,7 @@ pub fn render_browser_with_prompt(
         // Apply scrolloff: adjust the list offset so the selected item
         // stays at least `scrolloff` lines from the top/bottom edge.
         if let Some(sel) = selected_list_index {
-            let visible_height = list_area.height.saturating_sub(2) as usize;
+            let visible_height = list_area.height.saturating_sub(1) as usize; // 1 for title row
             if visible_height > 0 {
                 let scrolloff = 5usize.min(visible_height / 2);
                 let current_offset = *state.offset_mut();

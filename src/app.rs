@@ -443,9 +443,12 @@ impl App {
                         && mouse.row >= br.y
                         && mouse.row < br.y + br.height
                     {
-                        // The list content starts at br.y (no top border).
-                        // The block has Borders::RIGHT only, so no top/bottom offset.
-                        let clicked_row = (mouse.row - br.y) as usize;
+                        // The block has Borders::RIGHT + a title row, so list
+                        // content starts at br.y + 1. Ignore clicks on the title.
+                        if mouse.row <= br.y {
+                            return;
+                        }
+                        let clicked_row = (mouse.row - br.y - 1) as usize;
                         let total = if let Some(ref matches) = self.search_matches {
                             matches.len()
                         } else {
