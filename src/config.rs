@@ -66,15 +66,15 @@ impl Default for ThemeConfig {
 pub struct BrowserConfig {
     /// Whether to show hidden files/directories.
     pub show_hidden: bool,
-    /// Width of the browser panel in columns.
-    pub panel_width: u16,
+    /// Layout ratio [browser, editor]. e.g. [1, 3] = browser 1/4, editor 3/4.
+    pub ratio: [u32; 2],
 }
 
 impl Default for BrowserConfig {
     fn default() -> Self {
         Self {
             show_hidden: false,
-            panel_width: 30,
+            ratio: [1, 3],
         }
     }
 }

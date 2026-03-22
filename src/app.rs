@@ -182,7 +182,7 @@ impl App {
     /// Draw the full UI.
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
-        let layout = compute_layout(area, self.config.browser.panel_width, self.show_browser);
+        let layout = compute_layout(area, self.config.browser.ratio, self.show_browser);
         self.browser_rect = layout.browser;
 
         // Fill background

@@ -18,7 +18,7 @@ fn test_default_config() {
 
     // Browser defaults
     assert!(!cfg.browser.show_hidden);
-    assert_eq!(cfg.browser.panel_width, 30);
+    assert_eq!(cfg.browser.ratio, [1, 3]);
 }
 
 #[test]
@@ -43,7 +43,7 @@ mode = "sentence"
     assert_eq!(cfg.focus.opacity, 30);
     assert_eq!(cfg.theme.mode, "system");
     assert!(!cfg.browser.show_hidden);
-    assert_eq!(cfg.browser.panel_width, 30);
+    assert_eq!(cfg.browser.ratio, [1, 3]);
 }
 
 #[test]
