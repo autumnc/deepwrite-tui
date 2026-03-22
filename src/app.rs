@@ -524,7 +524,7 @@ impl App {
                 self.navigator.move_down();
                 self.preview_selected_file();
             }
-            KeyCode::Right | KeyCode::Enter => {
+            KeyCode::Right | KeyCode::Enter | KeyCode::Char('l') => {
                 if let Some(entry) = self.navigator.selected_entry() {
                     if entry.kind == EntryKind::Directory {
                         self.navigator.enter_selected();
@@ -536,7 +536,7 @@ impl App {
                     }
                 }
             }
-            KeyCode::Left | KeyCode::Backspace => {
+            KeyCode::Left | KeyCode::Backspace | KeyCode::Char('h') => {
                 self.navigator.go_up();
                 self.preview_selected_file();
             }
