@@ -20,6 +20,7 @@ use deepwrite::services::auto_save::AutoSave;
 use deepwrite::services::file_io;
 use deepwrite::services::file_watcher::FileWatcher;
 use deepwrite::theme::Theme;
+use deepwrite::ui::help::render_help;
 use deepwrite::ui::layout::compute_layout;
 use deepwrite::ui::status_bar::render_status_bar;
 
@@ -65,6 +66,7 @@ pub struct App {
     pub config: Config,
     pub theme: Theme,
     pub show_browser: bool,
+    pub show_help: bool,
     pub should_quit: bool,
     pub navigator: Navigator,
     pub editor: EditorWrapper,
@@ -102,6 +104,7 @@ impl App {
             config,
             theme,
             show_browser: true,
+            show_help: false,
             should_quit: false,
             navigator,
             editor,
@@ -219,6 +222,11 @@ impl App {
         let editor_area = centered_editor_area(layout.editor, self.editor_line_width);
         self.editor
             .render(frame, editor_area, &self.theme, self.focus_mode);
+
+        // Help overlay
+        if self.show_help {
+            render_help(frame, area, &self.theme);
+        }
 
         // Status bar
         let content = self.editor.get_content();
@@ -502,6 +510,17 @@ impl App {
 
     /// Handle key events in Browse mode.
     fn handle_browse_key(&mut self, key: KeyEvent) {
+        // Help screen intercepts all keys when visible
+        if self.show_help {
+            match key.code {
+                KeyCode::Char('?') | KeyCode::Esc | KeyCode::Char('q') => {
+                    self.show_help = false;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         // If a prompt is active, route keys to the prompt handler.
         if self.prompt != BrowserPrompt::None {
             self.handle_prompt_key(key);
@@ -558,6 +577,9 @@ impl App {
             KeyCode::Char('/') => {
                 self.prompt = BrowserPrompt::Search(String::new());
                 self.search_matches = Some(self.navigator.filter_entries(""));
+            }
+            KeyCode::Char('?') => {
+                self.show_help = true;
             }
             _ => {}
         }
