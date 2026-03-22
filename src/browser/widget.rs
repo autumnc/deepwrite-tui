@@ -116,6 +116,24 @@ pub fn render_browser_with_prompt(
         let mut state = ListState::default();
         state.select(selected_list_index);
 
+        // Apply scrolloff: adjust the list offset so the selected item
+        // stays at least `scrolloff` lines from the top/bottom edge.
+        if let Some(sel) = selected_list_index {
+            let visible_height = list_area.height.saturating_sub(2) as usize;
+            if visible_height > 0 {
+                let scrolloff = 5usize.min(visible_height / 2);
+                let current_offset = *state.offset_mut();
+                let mut offset = current_offset;
+
+                if sel < offset + scrolloff {
+                    offset = sel.saturating_sub(scrolloff);
+                } else if sel + scrolloff >= offset + visible_height {
+                    offset = (sel + scrolloff + 1).saturating_sub(visible_height);
+                }
+                *state.offset_mut() = offset;
+            }
+        }
+
         frame.render_stateful_widget(list, list_area, &mut state);
     }
 
