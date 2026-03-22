@@ -34,16 +34,16 @@ deepwrite (single Rust binary)
 ├── Editor Core (right panel)
 │   ├── edtui (fork) — text editing engine
 │   ├── Focus Mode engine (sentence/paragraph/typewriter)
-│   ├── Markdown syntax coloring (tree-sitter)
+│   ├── Markdown syntax coloring (regex-based)
 │   ├── Formatting shortcuts (Ctrl+B/I/K)
 │   └── Sentence boundary detection (Chinese/English)
 │
 └── Services
-    ├── tree-sitter + tree-sitter-markdown
-    ├── Auto-save (notify + debounce)
+    ├── Auto-save (std::time::Instant debounce)
+    ├── External file change detection (notify)
     ├── Config system (~/.config/deepwrite/config.toml)
     ├── Word/character counting (unicode-segmentation)
-    └── Terminal capability detection (truecolor, etc.)
+    └── Encoding detection (encoding_rs + chardetng)
 ```
 
 **Key architectural decision:** Fork edtui as the text editing engine for MVP. edtui provides non-modal editing, soft wrapping, clipboard integration, and is designed as an embeddable Ratatui widget. Post-MVP, migrate to a ropey-based custom core if edtui's limitations become blocking.
@@ -122,7 +122,7 @@ deepwrite (single Rust binary)
 ### Text Editing
 
 - **Engine:** forked edtui, non-modal (type immediately on entering editor)
-- **Content width:** 72 characters, centered with auto-calculated left/right padding
+- **Content width:** 80 characters, centered with auto-calculated left/right padding
 - **Soft wrapping:** Enabled, wraps at word boundaries
 - **Undo / Redo:** `Ctrl+Z` / `Ctrl+Y`
 - **Selection:** `Shift+arrow keys` to select, `Ctrl+A` to select all
@@ -131,7 +131,7 @@ deepwrite (single Rust binary)
 
 ### Markdown Syntax Coloring (Source Mode)
 
-Markdown symbols always visible, styled by element type. Parsed incrementally via tree-sitter with `tree-sitter-markdown` grammar.
+Markdown symbols always visible, styled by element type. Parsed via regex patterns (originally planned for tree-sitter, but switched due to a SIGBUS crash in tree-sitter-md's C external scanner).
 
 | Element | Light Mode Color | Dark Mode Color | ANSI Style |
 |---------|-----------------|-----------------|------------|
@@ -165,7 +165,7 @@ Markdown symbols always visible, styled by element type. Parsed incrementally vi
 | Action | Key |
 |--------|-----|
 | Open file from browser | `Enter` |
-| Return to file browser from editor | `Esc` (exits Focus Mode first, then second `Esc` returns to browser) |
+| Return to file browser from editor | `Esc` (single press — also turns off Focus Mode if active) |
 | Toggle left panel visibility in editor | `Ctrl+E` |
 
 ## Focus Mode
@@ -214,19 +214,24 @@ Same logic as Sentence Mode, but highlights the paragraph containing the cursor 
 - Transition: instant (no animation, terminal limitation)
 
 **Sentence boundary detection:**
-- English: `.` `!` `?` followed by whitespace or newline
+- Sentence detection is scoped to the paragraph containing the cursor (not the entire file)
+- English: `.` `!` `?` followed by whitespace or end of text
 - Chinese: `。` `！` `？` `；` as sentence terminators
 - Mixed text: both rulesets active simultaneously
-- Uses unicode-segmentation crate with custom rules for Markdown edge cases (avoid splitting on `.` inside headings, code blocks, or URLs)
+- Custom implementation (not unicode-segmentation) for precise control over Markdown edge cases
 
 **Paragraph detection:**
-- Uses tree-sitter AST `paragraph` nodes (consistent with native spec)
-- Correctly handles fenced code blocks, list items, block quotes
+- Blank-line-based detection: a paragraph is a group of consecutive non-empty lines
+- Paragraphs are separated by blank lines
 
 **Focus Mode and UI interaction:**
 - Entering Focus Mode → left panel auto-collapses, editor goes full-width
-- Exiting Focus Mode (`Esc`) → left panel restores
+- Exiting Focus Mode (`Esc`) → also returns to Browse mode (single press)
 - Status bar always visible
+
+**Live preview in Browse mode:**
+- Right panel updates as user navigates files in the browser (like Yazi)
+- No need to press Enter to see file content — preview is immediate
 
 ## Color System
 
@@ -283,7 +288,7 @@ Same logic as Sentence Mode, but highlights the paragraph containing the cursor 
 
 ### Auto-save
 
-- Triggers 500ms after typing stops
+- Triggers 2000ms after typing stops
 - Write to temp file first, then atomic rename
 - `Ctrl+S` bypasses debounce, saves immediately
 - New untitled documents auto-save to `~/.local/share/deepwrite/unsaved/{uuid}.md`
@@ -328,7 +333,7 @@ Same logic as Sentence Mode, but highlights the paragraph containing the cursor 
 | `Ctrl+U` | Strikethrough toggle |
 | `Ctrl+D` | Cycle Focus Mode (Off → Sentence → Paragraph → Typewriter → Off) |
 | `Ctrl+E` | Toggle left panel visibility |
-| `Esc` | Exit Focus Mode; second press returns to Browse mode |
+| `Esc` | Exit edit mode (single press — also turns off Focus Mode if active) |
 
 ## Configuration
 
@@ -336,9 +341,9 @@ Same logic as Sentence Mode, but highlights the paragraph containing the cursor 
 # ~/.config/deepwrite/config.toml
 
 [editor]
-line_width = 72                  # 64 | 72 | 80
+line_width = 80                  # 64 | 72 | 80
 auto_save = true
-auto_save_delay_ms = 500
+auto_save_delay_ms = 2000
 
 [focus]
 mode = "off"                     # off | sentence | paragraph | typewriter
@@ -379,13 +384,13 @@ deepwrite --version
 | TUI framework | Ratatui + crossterm | Largest ecosystem, immediate-mode rendering |
 | Editor engine | edtui (fork) | Non-modal editing, soft wrap, clipboard, embeddable widget |
 | Text data structure | edtui built-in (MVP) → ropey (post-MVP) | MVP speed vs long-term scalability |
-| Markdown parsing | tree-sitter + tree-sitter-markdown | Incremental parsing, fast re-highlighting |
-| Sentence segmentation | unicode-segmentation + custom rules | Chinese/English boundary detection |
-| Auto-save | tokio debounce (internal timer) | Async debounced writes on typing stop |
+| Markdown parsing | regex | Regex-based highlighting (replaced tree-sitter due to SIGBUS crash) |
+| Sentence segmentation | Custom implementation | Chinese/English boundary detection, scoped to paragraph |
+| Auto-save | std::time::Instant debounce | Debounced writes on typing stop (2s delay) |
 | External file change detection | notify | Detect when external tools (e.g. Claude Code) modify the open file |
 | Config | toml + serde | Standard Rust config pattern |
 | Word counting | unicode-segmentation | Accurate CJK + English counting |
-| Encoding detection | encoding_rs | Handles GBK, Big5, Shift_JIS, etc. |
+| Encoding detection | encoding_rs + chardetng | Handles UTF-8, GBK, Big5, Shift_JIS, etc. |
 | Distribution | cargo install + Homebrew | Single binary, zero dependencies |
 
 ## Phase 2+ (Not in MVP)
