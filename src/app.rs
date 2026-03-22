@@ -632,6 +632,16 @@ impl App {
                 self.prompt = BrowserPrompt::Search(String::new());
                 self.search_matches = Some(self.navigator.filter_entries(""));
             }
+            KeyCode::Char('y') => {
+                if let Some(entry) = self.navigator.selected_entry() {
+                    let full_path = self.navigator.current_dir.join(&entry.name);
+                    let path_str = full_path.display().to_string();
+                    match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&path_str)) {
+                        Ok(()) => self.set_status_message(format!("Copied: {path_str}")),
+                        Err(err) => self.set_status_message(format!("Copy failed: {err}")),
+                    }
+                }
+            }
             KeyCode::Char('?') => {
                 self.show_help = true;
             }
@@ -1164,6 +1174,19 @@ mod tests {
         app.handle_prompt_key(enter);
         assert!(tmp.path().join("notes.md").exists());
         assert_eq!(app.prompt, BrowserPrompt::None);
+    }
+
+    #[test]
+    fn yank_path_does_not_panic_without_selection() {
+        let tmp = TempDir::new().unwrap();
+        let empty = tmp.path().join("empty");
+        std::fs::create_dir(&empty).unwrap();
+        let mut app = App::new(Config::default(), empty);
+        app.data_dir = tmp.path().join("app-data");
+
+        // Pressing 'y' with no entries should not panic
+        let y_key = KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE);
+        app.handle_browse_key(y_key);
     }
 
     #[test]
