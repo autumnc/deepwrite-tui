@@ -33,16 +33,42 @@ use deepwrite::ui::help::render_help;
 /// keyboard layout so Ctrl shortcuts work regardless of input method.
 fn normalize_zhuyin(c: char) -> char {
     match c {
-        'ㄅ' => '1', 'ㄆ' => 'q', 'ㄇ' => 'a', 'ㄈ' => 'z',
-        'ㄉ' => '2', 'ㄊ' => 'w', 'ㄋ' => 's', 'ㄌ' => 'x',
-        'ㄍ' => 'e', 'ㄎ' => 'd', 'ㄏ' => 'c',
-        'ㄐ' => 'r', 'ㄑ' => 'f', 'ㄒ' => 'v',
-        'ㄓ' => '5', 'ㄔ' => 't', 'ㄕ' => 'g', 'ㄖ' => 'b',
-        'ㄗ' => 'y', 'ㄘ' => 'h', 'ㄙ' => 'n',
-        'ㄚ' => 'u', 'ㄛ' => 'j', 'ㄜ' => 'm',
-        'ㄝ' => '8', 'ㄞ' => 'i', 'ㄟ' => 'k', 'ㄠ' => ',',
-        'ㄡ' => '9', 'ㄢ' => 'o', 'ㄣ' => 'l', 'ㄤ' => '.',
-        'ㄥ' => '0', 'ㄦ' => 'p', 'ㄧ' => ';', 'ㄨ' => '/',
+        'ㄅ' => '1',
+        'ㄆ' => 'q',
+        'ㄇ' => 'a',
+        'ㄈ' => 'z',
+        'ㄉ' => '2',
+        'ㄊ' => 'w',
+        'ㄋ' => 's',
+        'ㄌ' => 'x',
+        'ㄍ' => 'e',
+        'ㄎ' => 'd',
+        'ㄏ' => 'c',
+        'ㄐ' => 'r',
+        'ㄑ' => 'f',
+        'ㄒ' => 'v',
+        'ㄓ' => '5',
+        'ㄔ' => 't',
+        'ㄕ' => 'g',
+        'ㄖ' => 'b',
+        'ㄗ' => 'y',
+        'ㄘ' => 'h',
+        'ㄙ' => 'n',
+        'ㄚ' => 'u',
+        'ㄛ' => 'j',
+        'ㄜ' => 'm',
+        'ㄝ' => '8',
+        'ㄞ' => 'i',
+        'ㄟ' => 'k',
+        'ㄠ' => ',',
+        'ㄡ' => '9',
+        'ㄢ' => 'o',
+        'ㄣ' => 'l',
+        'ㄤ' => '.',
+        'ㄥ' => '0',
+        'ㄦ' => 'p',
+        'ㄧ' => ';',
+        'ㄨ' => '/',
         'ㄩ' => '-',
         other => other,
     }
@@ -118,6 +144,7 @@ pub struct App {
     /// Filtered entry indices during search; None when not searching.
     pub search_matches: Option<Vec<usize>>,
     pub editor_line_width: u16,
+    editor_render_width: u16,
     pub pending_external_change: bool,
     browser_visibility_before_focus: bool,
     status_message: Option<StatusMessage>,
@@ -157,6 +184,7 @@ impl App {
             prompt: BrowserPrompt::None,
             search_matches: None,
             editor_line_width,
+            editor_render_width: editor_line_width,
             pending_external_change: false,
             browser_visibility_before_focus: true,
             status_message: None,
@@ -271,6 +299,7 @@ impl App {
 
         // Editor panel — centered content area
         let editor_area = centered_editor_area(layout.editor, self.editor_line_width);
+        self.editor_render_width = editor_area.width;
         self.editor
             .render(frame, editor_area, &self.theme, self.focus_mode);
 
@@ -1014,16 +1043,7 @@ impl App {
             return;
         }
 
-        // Up/Down: use wrapped movement for visual line navigation
-        if key.code == KeyCode::Up || key.code == KeyCode::Down {
-            use edtui::actions::Execute;
-            let width = self.editor_line_width as usize;
-            if key.code == KeyCode::Up {
-                edtui::actions::MoveUpWrapped { width }.execute(&mut self.editor.state);
-            } else {
-                edtui::actions::MoveDownWrapped { width }.execute(&mut self.editor.state);
-            }
-            self.editor.update_highlights(&self.theme, self.focus_mode);
+        if self.handle_wrapped_vertical_move(key) {
             return;
         }
 
@@ -1038,6 +1058,38 @@ impl App {
         if self.editor.get_content() != content_before {
             self.auto_save.mark_edited();
         }
+    }
+
+    fn wrapped_movement_width(&self) -> usize {
+        usize::from(self.editor_render_width.max(1))
+    }
+
+    fn handle_wrapped_vertical_move(&mut self, key: KeyEvent) -> bool {
+        if !matches!(key.code, KeyCode::Up | KeyCode::Down) {
+            return false;
+        }
+
+        if !(key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT) {
+            return false;
+        }
+
+        use edtui::actions::{Execute, SwitchMode};
+
+        if key.modifiers == KeyModifiers::SHIFT
+            && self.editor.state.mode != edtui::EditorMode::Visual
+        {
+            SwitchMode(edtui::EditorMode::Visual).execute(&mut self.editor.state);
+        }
+
+        let width = self.wrapped_movement_width();
+        if key.code == KeyCode::Up {
+            edtui::actions::MoveUpWrapped { width }.execute(&mut self.editor.state);
+        } else {
+            edtui::actions::MoveDownWrapped { width }.execute(&mut self.editor.state);
+        }
+
+        self.editor.update_highlights(&self.theme, self.focus_mode);
+        true
     }
 
     // ── Formatting helpers ──────────────────────────────────────
@@ -1178,6 +1230,7 @@ impl App {
 mod tests {
     use super::*;
     use crossterm::event::{KeyEvent, MouseEvent};
+    use ratatui::{backend::TestBackend, Terminal};
     use tempfile::TempDir;
 
     fn test_app(root: &TempDir) -> App {
@@ -1205,8 +1258,22 @@ mod tests {
 
         let app = App::new(config, tmp.path().to_path_buf());
         assert_eq!(app.editor_line_width, 64);
+        assert_eq!(app.editor_render_width, 64);
         assert_eq!(app.auto_save.delay, Duration::from_millis(1500));
         assert_eq!(app.focus_mode, FocusMode::Sentence);
+    }
+
+    #[test]
+    fn draw_tracks_actual_editor_render_width() {
+        let tmp = TempDir::new().unwrap();
+        let mut app = test_app(&tmp);
+        app.show_browser = false;
+
+        let backend = TestBackend::new(20, 6);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+
+        assert_eq!(app.editor_render_width, 20);
     }
 
     #[test]
@@ -1236,6 +1303,53 @@ mod tests {
         app.handle_edit_key(key, Event::Key(key));
 
         assert!(!app.auto_save.dirty);
+    }
+
+    #[test]
+    fn wrapped_vertical_movement_uses_last_render_width() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("note.md");
+        fs::write(&file_path, "ABCDE").unwrap();
+
+        let mut app = test_app(&tmp);
+        app.open_file(&file_path);
+        app.editor_render_width = 3;
+
+        let right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+        app.handle_edit_key(right, Event::Key(right));
+
+        let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+        app.handle_edit_key(down, Event::Key(down));
+
+        assert_eq!(app.editor.state.cursor, edtui::Index2::new(0, 4));
+    }
+
+    #[test]
+    fn shift_down_starts_visual_selection_with_wrapped_motion() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("note.md");
+        fs::write(&file_path, "ABCDE").unwrap();
+
+        let mut app = test_app(&tmp);
+        app.open_file(&file_path);
+        app.editor_render_width = 3;
+
+        let right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+        app.handle_edit_key(right, Event::Key(right));
+
+        let shift_down = KeyEvent::new(KeyCode::Down, KeyModifiers::SHIFT);
+        app.handle_edit_key(shift_down, Event::Key(shift_down));
+
+        let selection = app
+            .editor
+            .state
+            .selection
+            .as_ref()
+            .expect("expected selection after Shift+Down");
+        assert_eq!(app.editor.state.mode, edtui::EditorMode::Visual);
+        assert_eq!(app.editor.state.cursor, edtui::Index2::new(0, 4));
+        assert_eq!(selection.start, edtui::Index2::new(0, 1));
+        assert_eq!(selection.end, edtui::Index2::new(0, 4));
     }
 
     #[test]

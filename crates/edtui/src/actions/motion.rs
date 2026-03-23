@@ -4,11 +4,14 @@ use crate::{
     helper::{find_matching_bracket, skip_empty_lines},
     state::selection::set_selection_with_lines,
 };
-use jagged::Index2;
+use jagged::{index::RowIndex, Index2};
 
 use super::Execute;
 use crate::{
-    helper::{max_col, max_col_normal, skip_whitespace, skip_whitespace_rev},
+    helper::{
+        char_width, chars_width, max_col, max_col_normal, skip_whitespace, skip_whitespace_rev,
+    },
+    view::line_wrapper::LineWrapper,
     EditorMode, EditorState,
 };
 
@@ -84,6 +87,67 @@ impl Execute for MoveDown {
     }
 }
 
+fn wrapped_segments(state: &EditorState, row: usize, width: usize) -> Vec<Vec<char>> {
+    let line: Vec<char> = state
+        .lines
+        .get(RowIndex::new(row))
+        .map_or_else(Vec::new, |line| line.to_vec());
+
+    let wrapped = LineWrapper::wrap_line(&line, width, state.view.tab_width);
+    if wrapped.is_empty() {
+        vec![Vec::new()]
+    } else {
+        wrapped
+    }
+}
+
+fn wrapped_row_start(wrapped: &[Vec<char>], row_index: usize) -> usize {
+    wrapped.iter().take(row_index).map(Vec::len).sum()
+}
+
+fn wrapped_cursor_position(wrapped: &[Vec<char>], col: usize, tab_width: usize) -> (usize, usize) {
+    let mut row_start = 0;
+
+    for (row_index, row) in wrapped.iter().enumerate() {
+        let row_end = row_start + row.len();
+        if col < row_end || row_index + 1 == wrapped.len() {
+            let col_in_row = col.saturating_sub(row_start).min(row.len());
+            let visual_col = chars_width(&row[..col_in_row], tab_width);
+            return (row_index, visual_col);
+        }
+        row_start = row_end;
+    }
+
+    (0, 0)
+}
+
+fn logical_col_for_visual_width(
+    row: &[char],
+    visual_width: usize,
+    tab_width: usize,
+    mode: EditorMode,
+) -> usize {
+    let max_chars = if mode == EditorMode::Insert {
+        row.len()
+    } else {
+        row.len().saturating_sub(1)
+    };
+
+    let mut current_width = 0;
+    let mut char_count = 0;
+
+    for &ch in row.iter().take(max_chars) {
+        let width = char_width(ch, tab_width);
+        if current_width + width > visual_width {
+            break;
+        }
+        current_width += width;
+        char_count += 1;
+    }
+
+    char_count
+}
+
 /// Move the cursor down by one visual (wrapped) line.
 #[derive(Clone, Debug, Copy)]
 pub struct MoveDownWrapped {
@@ -96,55 +160,28 @@ impl Execute for MoveDownWrapped {
             return;
         }
 
+        state.clamp_column();
+
         let row = state.cursor.row;
-        let col = state.cursor.col;
-        let line: Vec<char> = state
-            .lines
-            .get(jagged::index::RowIndex::new(row))
-            .map(|l| l.to_vec())
-            .unwrap_or_default();
-
         let tab_width = state.view.tab_width;
-        let wrapped = crate::view::line_wrapper::LineWrapper::wrap_line(&line, self.width, tab_width);
-        let num_visual_rows = wrapped.len().max(1);
+        let wrapped = wrapped_segments(state, row, self.width);
+        let (visual_row, visual_col) =
+            wrapped_cursor_position(&wrapped, state.cursor.col, tab_width);
 
-        // Find which visual row the cursor is on
-        let mut chars_before = 0;
-        let mut visual_row = 0;
-        for (i, vline) in wrapped.iter().enumerate() {
-            if chars_before + vline.len() > col {
-                visual_row = i;
-                break;
-            }
-            if i == wrapped.len() - 1 {
-                visual_row = i;
-                break;
-            }
-            chars_before += vline.len();
-        }
-        let visual_col = col - chars_before;
-
-        if visual_row + 1 < num_visual_rows {
-            // Move to next visual row within the same logical line
-            let next_row_start = chars_before + wrapped[visual_row].len();
-            let next_row_len = wrapped[visual_row + 1].len();
-            let target_col = visual_col.min(next_row_len.saturating_sub(
-                if state.mode == EditorMode::Insert { 0 } else { 1 },
-            ));
-            state.cursor.col = next_row_start + target_col;
+        if visual_row + 1 < wrapped.len() {
+            let target_row = visual_row + 1;
+            let row_start = wrapped_row_start(&wrapped, target_row);
+            let target_col = logical_col_for_visual_width(
+                &wrapped[target_row],
+                visual_col,
+                tab_width,
+                state.mode,
+            );
+            state.cursor.col = row_start + target_col;
         } else if row + 1 < state.lines.len() {
-            // Move to the first visual row of the next logical line
-            let next_line: Vec<char> = state
-                .lines
-                .get(jagged::index::RowIndex::new(row + 1))
-                .map(|l| l.to_vec())
-                .unwrap_or_default();
-            let next_wrapped =
-                crate::view::line_wrapper::LineWrapper::wrap_line(&next_line, self.width, tab_width);
-            let next_first_len = next_wrapped.first().map_or(0, |v| v.len());
-            let target_col = visual_col.min(next_first_len.saturating_sub(
-                if state.mode == EditorMode::Insert { 0 } else { 1 },
-            ));
+            let next_wrapped = wrapped_segments(state, row + 1, self.width);
+            let target_col =
+                logical_col_for_visual_width(&next_wrapped[0], visual_col, tab_width, state.mode);
             state.cursor.row = row + 1;
             state.cursor.col = target_col;
         }
@@ -167,64 +204,36 @@ impl Execute for MoveUpWrapped {
             return;
         }
 
+        state.clamp_column();
+
         let row = state.cursor.row;
-        let col = state.cursor.col;
-        let line: Vec<char> = state
-            .lines
-            .get(jagged::index::RowIndex::new(row))
-            .map(|l| l.to_vec())
-            .unwrap_or_default();
-
         let tab_width = state.view.tab_width;
-        let wrapped = crate::view::line_wrapper::LineWrapper::wrap_line(&line, self.width, tab_width);
-
-        // Find which visual row the cursor is on
-        let mut chars_before = 0;
-        let mut visual_row = 0;
-        for (i, vline) in wrapped.iter().enumerate() {
-            if chars_before + vline.len() > col {
-                visual_row = i;
-                break;
-            }
-            if i == wrapped.len() - 1 {
-                visual_row = i;
-                break;
-            }
-            chars_before += vline.len();
-        }
-        let visual_col = col - chars_before;
+        let wrapped = wrapped_segments(state, row, self.width);
+        let (visual_row, visual_col) =
+            wrapped_cursor_position(&wrapped, state.cursor.col, tab_width);
 
         if visual_row > 0 {
-            // Move to previous visual row within the same logical line
-            let prev_row_start: usize = wrapped[..visual_row - 1].iter().map(|v| v.len()).sum();
-            let prev_row_len = wrapped[visual_row - 1].len();
-            let target_col = visual_col.min(prev_row_len.saturating_sub(
-                if state.mode == EditorMode::Insert { 0 } else { 1 },
-            ));
-            state.cursor.col = prev_row_start + target_col;
+            let target_row = visual_row - 1;
+            let row_start = wrapped_row_start(&wrapped, target_row);
+            let target_col = logical_col_for_visual_width(
+                &wrapped[target_row],
+                visual_col,
+                tab_width,
+                state.mode,
+            );
+            state.cursor.col = row_start + target_col;
         } else if row > 0 {
-            // Move to the last visual row of the previous logical line
-            let prev_line: Vec<char> = state
-                .lines
-                .get(jagged::index::RowIndex::new(row - 1))
-                .map(|l| l.to_vec())
-                .unwrap_or_default();
-            let prev_wrapped =
-                crate::view::line_wrapper::LineWrapper::wrap_line(&prev_line, self.width, tab_width);
-            let last_row_start: usize = if prev_wrapped.len() > 1 {
-                prev_wrapped[..prev_wrapped.len() - 1]
-                    .iter()
-                    .map(|v| v.len())
-                    .sum()
-            } else {
-                0
-            };
-            let last_row_len = prev_wrapped.last().map_or(0, |v| v.len());
-            let target_col = visual_col.min(last_row_len.saturating_sub(
-                if state.mode == EditorMode::Insert { 0 } else { 1 },
-            ));
+            let prev_wrapped = wrapped_segments(state, row - 1, self.width);
+            let target_row = prev_wrapped.len().saturating_sub(1);
+            let row_start = wrapped_row_start(&prev_wrapped, target_row);
+            let target_col = logical_col_for_visual_width(
+                &prev_wrapped[target_row],
+                visual_col,
+                tab_width,
+                state.mode,
+            );
             state.cursor.row = row - 1;
-            state.cursor.col = last_row_start + target_col;
+            state.cursor.col = row_start + target_col;
         }
 
         if state.mode == EditorMode::Visual {
@@ -977,5 +986,29 @@ mod tests {
         state.cursor = Index2::new(0, 1);
         MoveUpWrapped { width: 5 }.execute(&mut state);
         assert_eq!(state.cursor, Index2::new(0, 1));
+    }
+
+    #[test]
+    fn test_move_down_wrapped_uses_display_width_for_tabs() {
+        let mut state = EditorState::new(Lines::from("\tA12"));
+        state.mode = EditorMode::Insert;
+        state.view.tab_width = 4;
+        state.cursor = Index2::new(0, 1);
+
+        MoveDownWrapped { width: 5 }.execute(&mut state);
+
+        assert_eq!(state.cursor, Index2::new(0, 4));
+    }
+
+    #[test]
+    fn test_move_up_wrapped_uses_display_width_for_tabs() {
+        let mut state = EditorState::new(Lines::from("\tA12"));
+        state.mode = EditorMode::Insert;
+        state.view.tab_width = 4;
+        state.cursor = Index2::new(0, 3);
+
+        MoveUpWrapped { width: 5 }.execute(&mut state);
+
+        assert_eq!(state.cursor, Index2::new(0, 0));
     }
 }
