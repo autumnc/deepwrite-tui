@@ -1014,6 +1014,19 @@ impl App {
             return;
         }
 
+        // Up/Down: use wrapped movement for visual line navigation
+        if key.code == KeyCode::Up || key.code == KeyCode::Down {
+            use edtui::actions::Execute;
+            let width = self.editor_line_width as usize;
+            if key.code == KeyCode::Up {
+                edtui::actions::MoveUpWrapped { width }.execute(&mut self.editor.state);
+            } else {
+                edtui::actions::MoveDownWrapped { width }.execute(&mut self.editor.state);
+            }
+            self.editor.update_highlights(&self.theme, self.focus_mode);
+            return;
+        }
+
         // Everything else goes to the editor
         let content_before = self.editor.get_content();
         self.editor.handle_event(event);
