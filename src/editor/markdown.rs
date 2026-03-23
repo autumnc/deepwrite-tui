@@ -34,6 +34,12 @@ pub struct MarkdownHighlighter {
     re_fenced_code_start: Regex,
 }
 
+impl Default for MarkdownHighlighter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MarkdownHighlighter {
     /// Create a new highlighter.
     pub fn new() -> Self {

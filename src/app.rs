@@ -3,13 +3,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 use ratatui::{prelude::*, widgets::Block};
 
 use deepwrite::browser::actions;
 use deepwrite::browser::entries::EntryKind;
 use deepwrite::browser::navigator::Navigator;
-use deepwrite::browser::widget::{render_browser_with_prompt, BrowserPromptInfo};
+use deepwrite::browser::widget::{
+    browser_content_area, browser_scroll_offset, render_browser_with_prompt, split_browser_area,
+    BrowserPromptInfo,
+};
 use deepwrite::config::Config;
 use deepwrite::editor::centered_editor_area;
 use deepwrite::editor::focus::FocusMode;
@@ -21,6 +26,41 @@ use deepwrite::services::file_io;
 use deepwrite::services::file_watcher::FileWatcher;
 use deepwrite::theme::Theme;
 use deepwrite::ui::help::render_help;
+
+/// Map Zhuyin (Bopomofo) characters back to their ASCII key equivalents.
+/// When a CJK input method is active on macOS, pressing Ctrl+F sends
+/// Ctrl+ㄑ instead of Ctrl+F. This table reverses the standard Zhuyin
+/// keyboard layout so Ctrl shortcuts work regardless of input method.
+fn normalize_zhuyin(c: char) -> char {
+    match c {
+        'ㄅ' => '1', 'ㄆ' => 'q', 'ㄇ' => 'a', 'ㄈ' => 'z',
+        'ㄉ' => '2', 'ㄊ' => 'w', 'ㄋ' => 's', 'ㄌ' => 'x',
+        'ㄍ' => 'e', 'ㄎ' => 'd', 'ㄏ' => 'c',
+        'ㄐ' => 'r', 'ㄑ' => 'f', 'ㄒ' => 'v',
+        'ㄓ' => '5', 'ㄔ' => 't', 'ㄕ' => 'g', 'ㄖ' => 'b',
+        'ㄗ' => 'y', 'ㄘ' => 'h', 'ㄙ' => 'n',
+        'ㄚ' => 'u', 'ㄛ' => 'j', 'ㄜ' => 'm',
+        'ㄝ' => '8', 'ㄞ' => 'i', 'ㄟ' => 'k', 'ㄠ' => ',',
+        'ㄡ' => '9', 'ㄢ' => 'o', 'ㄣ' => 'l', 'ㄤ' => '.',
+        'ㄥ' => '0', 'ㄦ' => 'p', 'ㄧ' => ';', 'ㄨ' => '/',
+        'ㄩ' => '-',
+        other => other,
+    }
+}
+
+/// Normalize a KeyEvent: when Ctrl is held and the character is a Zhuyin
+/// symbol, map it back to ASCII so shortcuts work with CJK input methods.
+fn normalize_key(key: KeyEvent) -> KeyEvent {
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        if let KeyCode::Char(c) = key.code {
+            let normalized = normalize_zhuyin(c);
+            if normalized != c {
+                return KeyEvent::new(KeyCode::Char(normalized), key.modifiers);
+            }
+        }
+    }
+    key
+}
 use deepwrite::ui::layout::compute_layout;
 use deepwrite::ui::status_bar::render_status_bar;
 
@@ -83,7 +123,8 @@ pub struct App {
     status_message: Option<StatusMessage>,
     last_conflict_backup_content: Option<String>,
     data_dir: PathBuf,
-    browser_rect: Rect,
+    browser_content_rect: Rect,
+    browser_scroll_offset: usize,
 }
 
 impl App {
@@ -100,7 +141,7 @@ impl App {
             .unwrap_or_else(|| PathBuf::from("."))
             .join("deepwrite");
 
-        Self {
+        let mut app = Self {
             mode: AppMode::Browse,
             config,
             theme,
@@ -121,8 +162,11 @@ impl App {
             status_message: None,
             last_conflict_backup_content: None,
             data_dir,
-            browser_rect: Rect::default(),
-        }
+            browser_content_rect: Rect::default(),
+            browser_scroll_offset: 0,
+        };
+        app.preview_selected_file();
+        app
     }
 
     /// Run the main event loop.
@@ -183,7 +227,6 @@ impl App {
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
         let layout = compute_layout(area, self.config.browser.ratio, self.show_browser);
-        self.browser_rect = layout.browser;
 
         // Fill background
         let bg_block = Block::default().style(self.theme.base_style());
@@ -191,6 +234,8 @@ impl App {
 
         // Browser panel
         if self.show_browser {
+            let prompt_visible = self.prompt != BrowserPrompt::None;
+            self.sync_browser_viewport(layout.browser, prompt_visible);
             let prompt_info = match &self.prompt {
                 BrowserPrompt::None => None,
                 BrowserPrompt::Create(buf) => Some(BrowserPromptInfo {
@@ -219,17 +264,15 @@ impl App {
                 prompt_info,
                 visible,
             );
+        } else {
+            self.browser_content_rect = Rect::default();
+            self.browser_scroll_offset = 0;
         }
 
         // Editor panel — centered content area
         let editor_area = centered_editor_area(layout.editor, self.editor_line_width);
         self.editor
             .render(frame, editor_area, &self.theme, self.focus_mode);
-
-        // Help overlay
-        if self.show_help {
-            render_help(frame, area, &self.theme);
-        }
 
         // Status bar
         let content = self.editor.get_content();
@@ -266,6 +309,11 @@ impl App {
             center_label,
             &self.theme,
         );
+
+        // Help overlay
+        if self.show_help {
+            render_help(frame, area, &self.theme);
+        }
     }
 
     fn set_status_message(&mut self, text: impl Into<String>) {
@@ -433,53 +481,78 @@ impl App {
     }
 
     fn handle_mouse_event(&mut self, mouse: &crossterm::event::MouseEvent) {
+        if self.mode != AppMode::Browse
+            || !self.show_browser
+            || self.show_help
+            || self.prompt != BrowserPrompt::None
+        {
+            return;
+        }
+
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                if self.mode == AppMode::Browse && self.show_browser {
-                    let br = self.browser_rect;
-                    // Check if click is within the browser panel area.
-                    if mouse.column >= br.x
-                        && mouse.column < br.x + br.width
-                        && mouse.row >= br.y
-                        && mouse.row < br.y + br.height
-                    {
-                        // The block has Borders::RIGHT + a title row, so list
-                        // content starts at br.y + 1. Ignore clicks on the title.
-                        if mouse.row <= br.y {
-                            return;
-                        }
-                        let clicked_row = (mouse.row - br.y - 1) as usize;
-                        let total = if let Some(ref matches) = self.search_matches {
-                            matches.len()
-                        } else {
-                            self.navigator.entries.len()
-                        };
-                        if clicked_row < total {
-                            if let Some(ref matches) = self.search_matches {
-                                if clicked_row < matches.len() {
-                                    self.navigator.selected = matches[clicked_row];
-                                }
-                            } else {
-                                self.navigator.selected = clicked_row;
-                            }
-                            self.preview_selected_file();
-                        }
-                    }
+                if self.mouse_in_browser_content(mouse) {
+                    let clicked_row = (mouse.row - self.browser_content_rect.y) as usize;
+                    let visible_index = self.browser_scroll_offset + clicked_row;
+                    self.select_visible_entry(visible_index);
                 }
             }
             MouseEventKind::ScrollUp => {
-                if self.mode == AppMode::Browse {
+                if self.mouse_in_browser_content(mouse) {
                     self.navigator.move_up();
                     self.preview_selected_file();
                 }
             }
             MouseEventKind::ScrollDown => {
-                if self.mode == AppMode::Browse {
+                if self.mouse_in_browser_content(mouse) {
                     self.navigator.move_down();
                     self.preview_selected_file();
                 }
             }
             _ => {}
+        }
+    }
+
+    fn sync_browser_viewport(&mut self, area: Rect, prompt_visible: bool) {
+        let (list_area, _) = split_browser_area(area, prompt_visible);
+        self.browser_content_rect = browser_content_area(list_area);
+        self.browser_scroll_offset = browser_scroll_offset(list_area, self.selected_list_index());
+    }
+
+    fn selected_list_index(&self) -> Option<usize> {
+        if let Some(matches) = &self.search_matches {
+            matches
+                .iter()
+                .position(|&index| index == self.navigator.selected)
+        } else if self.navigator.entries.is_empty() {
+            None
+        } else {
+            Some(self.navigator.selected)
+        }
+    }
+
+    fn mouse_in_browser_content(&self, mouse: &crossterm::event::MouseEvent) -> bool {
+        let rect = self.browser_content_rect;
+        rect.width > 0
+            && rect.height > 0
+            && mouse.column >= rect.x
+            && mouse.column < rect.x + rect.width
+            && mouse.row >= rect.y
+            && mouse.row < rect.y + rect.height
+    }
+
+    fn select_visible_entry(&mut self, visible_index: usize) {
+        let selected = if let Some(matches) = &self.search_matches {
+            matches.get(visible_index).copied()
+        } else if visible_index < self.navigator.entries.len() {
+            Some(visible_index)
+        } else {
+            None
+        };
+
+        if let Some(selected) = selected {
+            self.navigator.selected = selected;
+            self.preview_selected_file();
         }
     }
 
@@ -499,6 +572,21 @@ impl App {
                 self.editor.load_content("");
                 self.current_filename = String::new();
             }
+        } else {
+            self.editor.load_content("");
+            self.current_filename = String::new();
+        }
+    }
+
+    fn select_browser_entry(&mut self, name: &str, kind: EntryKind) {
+        let _ = self.navigator.select_entry_named(name, kind);
+    }
+
+    fn created_entry_name(name: &str) -> String {
+        if name.ends_with(".md") || name.ends_with(".txt") {
+            name.to_string()
+        } else {
+            format!("{name}.md")
         }
     }
 
@@ -567,6 +655,8 @@ impl App {
 
     /// Handle key events in Browse mode.
     fn handle_browse_key(&mut self, key: KeyEvent) {
+        let key = normalize_key(key);
+
         // Help screen intercepts all keys when visible
         if self.show_help {
             match key.code {
@@ -616,7 +706,10 @@ impl App {
                 self.navigator.go_up();
                 self.preview_selected_file();
             }
-            KeyCode::Char('.') => self.navigator.toggle_hidden(),
+            KeyCode::Char('.') => {
+                self.navigator.toggle_hidden();
+                self.preview_selected_file();
+            }
             // ── File browser actions ──
             KeyCode::Char('a') => {
                 self.prompt = BrowserPrompt::Create(String::new());
@@ -723,31 +816,72 @@ impl App {
                 if !trimmed.is_empty() {
                     if trimmed.ends_with('/') {
                         let dir_name = trimmed.trim_end_matches('/');
-                        let _ = actions::create_directory(&self.navigator.current_dir, dir_name);
+                        match actions::create_directory(&self.navigator.current_dir, dir_name) {
+                            Ok(()) => {
+                                self.navigator.refresh();
+                                self.select_browser_entry(dir_name, EntryKind::Directory);
+                                self.preview_selected_file();
+                                self.set_status_message(format!("Created directory: {dir_name}"));
+                            }
+                            Err(err) => {
+                                self.set_status_message(format!("Create failed: {err}"));
+                            }
+                        }
                     } else {
-                        let _ = actions::create_file(&self.navigator.current_dir, trimmed);
+                        match actions::create_file(&self.navigator.current_dir, trimmed) {
+                            Ok(()) => {
+                                let file_name = Self::created_entry_name(trimmed);
+                                self.navigator.refresh();
+                                self.select_browser_entry(&file_name, EntryKind::File);
+                                self.preview_selected_file();
+                                self.set_status_message(format!("Created file: {file_name}"));
+                            }
+                            Err(err) => {
+                                self.set_status_message(format!("Create failed: {err}"));
+                            }
+                        }
                     }
-                    self.navigator.refresh();
                 }
             }
             BrowserPrompt::Rename(new_name) => {
-                if let Some(entry) = self.navigator.selected_entry() {
-                    let old_name = entry.name.clone();
-                    if !new_name.trim().is_empty() && new_name != old_name {
-                        let _ = actions::rename_entry(
+                let trimmed_new_name = new_name.trim().to_string();
+                if let Some(entry) = self.navigator.selected_entry().cloned() {
+                    let old_name = entry.name;
+                    let kind = entry.kind;
+                    if !trimmed_new_name.is_empty() && trimmed_new_name != old_name {
+                        match actions::rename_entry(
                             &self.navigator.current_dir,
                             &old_name,
-                            &new_name,
-                        );
-                        self.navigator.refresh();
+                            &trimmed_new_name,
+                        ) {
+                            Ok(()) => {
+                                self.navigator.refresh();
+                                self.select_browser_entry(&trimmed_new_name, kind);
+                                self.preview_selected_file();
+                                self.set_status_message(format!(
+                                    "Renamed {old_name} -> {trimmed_new_name}"
+                                ));
+                            }
+                            Err(err) => {
+                                self.set_status_message(format!("Rename failed: {err}"));
+                            }
+                        }
                     }
                 }
             }
             BrowserPrompt::Delete => {
-                if let Some(entry) = self.navigator.selected_entry() {
-                    let name = entry.name.clone();
-                    let _ = actions::delete_entry(&self.navigator.current_dir, &name);
-                    self.navigator.refresh();
+                if let Some(entry) = self.navigator.selected_entry().cloned() {
+                    let name = entry.name;
+                    match actions::delete_entry(&self.navigator.current_dir, &name) {
+                        Ok(()) => {
+                            self.navigator.refresh();
+                            self.preview_selected_file();
+                            self.set_status_message(format!("Deleted {name}"));
+                        }
+                        Err(err) => {
+                            self.set_status_message(format!("Delete failed: {err}"));
+                        }
+                    }
                 }
             }
             BrowserPrompt::Search(_) => {
@@ -762,6 +896,8 @@ impl App {
     ///
     /// We intercept Esc, Ctrl+E, and Ctrl+S before passing the event to edtui.
     fn handle_edit_key(&mut self, key: KeyEvent, event: Event) {
+        let key = normalize_key(key);
+
         // Ctrl+E toggles browser panel
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('e') {
             self.toggle_browser_visibility();
@@ -795,8 +931,8 @@ impl App {
             return;
         }
 
-        // Ctrl+D cycles focus mode
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('d') {
+        // Ctrl+F cycles focus mode
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('f') {
             self.set_focus_mode(self.focus_mode.cycle());
             return;
         }
@@ -804,8 +940,8 @@ impl App {
         // ── Formatting Shortcuts ──────────────────────────────────
 
         // Ctrl+1 through Ctrl+6: toggle heading level on current line
-        if key.modifiers.contains(KeyModifiers::CONTROL) {
-            let heading_level = match key.code {
+        let heading_level = if key.modifiers.contains(KeyModifiers::CONTROL) {
+            match key.code {
                 KeyCode::Char('1') => Some(1),
                 KeyCode::Char('2') => Some(2),
                 KeyCode::Char('3') => Some(3),
@@ -813,11 +949,21 @@ impl App {
                 KeyCode::Char('5') => Some(5),
                 KeyCode::Char('6') => Some(6),
                 _ => None,
-            };
-            if let Some(level) = heading_level {
-                self.apply_heading_toggle(level);
-                return;
             }
+        } else {
+            match key.code {
+                KeyCode::F(1) => Some(1),
+                KeyCode::F(2) => Some(2),
+                KeyCode::F(3) => Some(3),
+                KeyCode::F(4) => Some(4),
+                KeyCode::F(5) => Some(5),
+                KeyCode::F(6) => Some(6),
+                _ => None,
+            }
+        };
+        if let Some(level) = heading_level {
+            self.apply_heading_toggle(level);
+            return;
         }
 
         // Ctrl+B: toggle bold
@@ -826,8 +972,11 @@ impl App {
             return;
         }
 
-        // Ctrl+I: toggle italic
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('i') {
+        // Ctrl+I: toggle italic. Ctrl+T is a portable fallback on terminals
+        // that still collapse Ctrl+I into Tab.
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('i') | KeyCode::Char('t'))
+        {
             self.apply_inline_format("*");
             return;
         }
@@ -887,6 +1036,7 @@ impl App {
     fn apply_heading_toggle(&mut self, level: usize) {
         use edtui::RowIndex;
 
+        self.editor.state.checkpoint();
         let row = self.editor.state.cursor.row;
 
         // Read the current line content.
@@ -918,6 +1068,7 @@ impl App {
     /// on the selected text, or insert the marker pair at cursor if no
     /// selection is active.
     fn apply_inline_format(&mut self, marker: &str) {
+        self.editor.state.checkpoint();
         if let Some(ref selection) = self.editor.state.selection.clone() {
             // There is a selection — get the text, toggle, and replace.
             let selected_lines = selection.copy_from(&self.editor.state.lines);
@@ -973,6 +1124,7 @@ impl App {
 
     /// Insert a Markdown link template at the cursor or wrap the selection.
     fn apply_link_format(&mut self) {
+        self.editor.state.checkpoint();
         if let Some(ref selection) = self.editor.state.selection.clone() {
             let selected_lines = selection.copy_from(&self.editor.state.lines);
             let selected_text = selected_lines.to_string();
@@ -1012,7 +1164,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::KeyEvent;
+    use crossterm::event::{KeyEvent, MouseEvent};
     use tempfile::TempDir;
 
     fn test_app(root: &TempDir) -> App {
@@ -1205,5 +1357,187 @@ mod tests {
         let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         app.handle_prompt_key(enter);
         assert!(tmp.path().join("drafts").is_dir());
+    }
+
+    #[test]
+    fn mouse_click_uses_scroll_offset_for_visible_entries() {
+        let tmp = TempDir::new().unwrap();
+        for i in 0..20 {
+            fs::write(tmp.path().join(format!("note-{i:02}.md")), "").unwrap();
+        }
+
+        let mut app = test_app(&tmp);
+        app.navigator.selected = 10;
+        app.sync_browser_viewport(Rect::new(0, 0, 20, 11), false);
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: app.browser_content_rect.x,
+            row: app.browser_content_rect.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse_event(&click);
+
+        assert_eq!(app.browser_scroll_offset, 6);
+        assert_eq!(app.navigator.selected, 8);
+    }
+
+    #[test]
+    fn mouse_scroll_ignores_events_outside_browser_content() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("note.md"), "").unwrap();
+
+        let mut app = test_app(&tmp);
+        app.navigator.selected = 0;
+        app.sync_browser_viewport(Rect::new(0, 0, 20, 6), false);
+
+        let scroll = MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: app.browser_content_rect.x + app.browser_content_rect.width,
+            row: app.browser_content_rect.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse_event(&scroll);
+
+        assert_eq!(app.navigator.selected, 0);
+    }
+
+    #[test]
+    fn mouse_input_is_ignored_while_help_or_prompt_is_visible() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("a.md"), "").unwrap();
+        fs::write(tmp.path().join("b.md"), "").unwrap();
+
+        let mut app = test_app(&tmp);
+        app.sync_browser_viewport(Rect::new(0, 0, 20, 6), false);
+
+        let scroll = MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: app.browser_content_rect.x,
+            row: app.browser_content_rect.y,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.show_help = true;
+        app.handle_mouse_event(&scroll);
+        assert_eq!(app.navigator.selected, 0);
+
+        app.show_help = false;
+        app.prompt = BrowserPrompt::Search(String::new());
+        app.handle_mouse_event(&scroll);
+        assert_eq!(app.navigator.selected, 0);
+    }
+
+    #[test]
+    fn app_previews_first_file_on_launch() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("alpha.md"), "Alpha").unwrap();
+        fs::write(tmp.path().join("beta.md"), "Beta").unwrap();
+
+        let app = test_app(&tmp);
+
+        assert_eq!(app.current_filename, "alpha.md");
+        assert_eq!(app.editor.get_content(), "Alpha");
+    }
+
+    #[test]
+    fn duplicate_create_sets_status_message() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("notes.md"), "").unwrap();
+
+        let mut app = test_app(&tmp);
+        app.prompt = BrowserPrompt::Create("notes".to_string());
+        app.confirm_prompt();
+
+        let message = app
+            .status_message
+            .as_ref()
+            .expect("expected status message")
+            .text
+            .clone();
+        assert!(message.contains("Create failed"));
+    }
+
+    #[test]
+    fn toggle_hidden_preserves_previewed_file() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join(".secret.md"), "Secret").unwrap();
+        fs::write(tmp.path().join("alpha.md"), "Alpha").unwrap();
+        fs::write(tmp.path().join("visible.md"), "Visible").unwrap();
+
+        let mut app = test_app(&tmp);
+        app.navigator.selected = app
+            .navigator
+            .entries
+            .iter()
+            .position(|entry| entry.name == "visible.md")
+            .expect("expected visible file");
+        app.preview_selected_file();
+        assert_eq!(app.current_filename, "visible.md");
+
+        let dot = KeyEvent::new(KeyCode::Char('.'), KeyModifiers::NONE);
+        app.handle_browse_key(dot);
+
+        assert_eq!(app.current_filename, "visible.md");
+        assert_eq!(app.editor.get_content(), "Visible");
+    }
+
+    #[test]
+    fn ctrl_t_applies_italic_fallback_shortcut() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("note.md");
+        fs::write(&file_path, "Hello").unwrap();
+
+        let mut app = test_app(&tmp);
+        app.open_file(&file_path);
+
+        let move_right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+        for _ in 0..5 {
+            app.handle_edit_key(move_right, Event::Key(move_right));
+        }
+
+        let italic = KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL);
+        app.handle_edit_key(italic, Event::Key(italic));
+
+        assert_eq!(app.editor.get_content(), "Hello**");
+    }
+
+    #[test]
+    fn function_keys_toggle_heading_levels() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("note.md");
+        fs::write(&file_path, "Hello").unwrap();
+
+        let mut app = test_app(&tmp);
+        app.open_file(&file_path);
+
+        let heading = KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE);
+        app.handle_edit_key(heading, Event::Key(heading));
+
+        assert_eq!(app.editor.get_content(), "# Hello");
+    }
+
+    #[test]
+    fn formatting_shortcuts_undo_as_single_action() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("note.md");
+        fs::write(&file_path, "Hello").unwrap();
+
+        let mut app = test_app(&tmp);
+        app.open_file(&file_path);
+
+        let move_right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+        for _ in 0..5 {
+            app.handle_edit_key(move_right, Event::Key(move_right));
+        }
+
+        let bold = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL);
+        app.handle_edit_key(bold, Event::Key(bold));
+        assert_eq!(app.editor.get_content(), "Hello****");
+
+        let undo = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL);
+        app.handle_edit_key(undo, Event::Key(undo));
+
+        assert_eq!(app.editor.get_content(), "Hello");
     }
 }

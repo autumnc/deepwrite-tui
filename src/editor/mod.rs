@@ -28,6 +28,12 @@ pub struct EditorWrapper {
     highlighter: MarkdownHighlighter,
 }
 
+impl Default for EditorWrapper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EditorWrapper {
     /// Create a new editor with our custom non-modal keymap.
     ///

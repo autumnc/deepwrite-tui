@@ -1,6 +1,8 @@
 //! Status bar rendering.
 
 use ratatui::{prelude::*, widgets::Paragraph};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use crate::theme::Theme;
 
@@ -22,44 +24,101 @@ pub fn render_status_bar(
         .fg(theme.status_bar_fg)
         .bg(theme.status_bar_bg);
 
-    // Build the three sections
     let left = filename.to_string();
     let center = focus_label.to_string();
     let right = format!("{word_count}W  {char_count}C");
-
     let width = area.width as usize;
+    if width == 0 {
+        return;
+    }
 
-    // Calculate padding to distribute the three parts across the width
-    let left_len = left.len();
-    let center_len = center.len();
-    let right_len = right.len();
+    let left = truncate_to_width(&left, width);
+    let center = truncate_to_width(&center, width);
+    let right = truncate_to_width(&right, width);
 
-    let line = if width < left_len + center_len + right_len + 4 {
-        // Not enough room — just concatenate with spaces
-        format!("{left}  {center}  {right}")
-    } else if center.is_empty() {
-        // No center label — left-justify filename, right-justify counts
-        let padding = width.saturating_sub(left_len + right_len);
-        format!("{left}{:>pad$}", right, pad = padding)
-    } else {
-        // Position center text in the middle of the bar
-        let mid = width / 2;
-        let center_start = mid.saturating_sub(center_len / 2);
-        let left_pad = center_start.saturating_sub(left_len);
-        let right_pad = width
-            .saturating_sub(center_start + center_len)
-            .saturating_sub(right_len);
-        format!(
-            "{left}{}{center}{}{}",
-            " ".repeat(left_pad),
-            " ".repeat(right_pad),
-            right,
-        )
-    };
+    frame.render_widget(Paragraph::new(" ".repeat(width)).style(style), area);
 
-    // Truncate to width
-    let display: String = line.chars().take(width).collect();
+    let right_width = display_width(&right).min(width) as u16;
+    let right_area = Rect::new(
+        area.x + area.width.saturating_sub(right_width),
+        area.y,
+        right_width,
+        area.height,
+    );
+    if !right.is_empty() && right_area.width > 0 {
+        frame.render_widget(
+            Paragraph::new(right)
+                .style(style)
+                .alignment(Alignment::Right),
+            right_area,
+        );
+    }
 
-    let para = Paragraph::new(display).style(style);
-    frame.render_widget(para, area);
+    let remaining_width = area.width.saturating_sub(right_width);
+    if remaining_width == 0 {
+        return;
+    }
+
+    if center.is_empty() {
+        let left_area = Rect::new(area.x, area.y, remaining_width, area.height);
+        frame.render_widget(Paragraph::new(left).style(style), left_area);
+        return;
+    }
+
+    let center_width = display_width(&center).min(remaining_width as usize) as u16;
+    let center_x = area.x + remaining_width.saturating_sub(center_width) / 2;
+    let left_area = Rect::new(area.x, area.y, center_x.saturating_sub(area.x), area.height);
+    let center_area = Rect::new(center_x, area.y, center_width, area.height);
+
+    if left_area.width > 0 {
+        frame.render_widget(Paragraph::new(left).style(style), left_area);
+    }
+    if center_area.width > 0 {
+        frame.render_widget(
+            Paragraph::new(center)
+                .style(style)
+                .alignment(Alignment::Center),
+            center_area,
+        );
+    }
+}
+
+fn display_width(text: &str) -> usize {
+    UnicodeWidthStr::width(text)
+}
+
+fn truncate_to_width(text: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+
+    let mut truncated = String::new();
+    let mut current_width = 0;
+
+    for grapheme in text.graphemes(true) {
+        let grapheme_width = display_width(grapheme);
+        if current_width + grapheme_width > max_width {
+            break;
+        }
+        truncated.push_str(grapheme);
+        current_width += grapheme_width;
+    }
+
+    truncated
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_to_width_respects_wide_characters() {
+        assert_eq!(truncate_to_width("檔案.md", 4), "檔案");
+        assert_eq!(display_width("檔案"), 4);
+    }
+
+    #[test]
+    fn truncate_to_width_keeps_full_graphemes() {
+        assert_eq!(truncate_to_width("a👨‍👩‍👧‍👦b", 3), "a👨‍👩‍👧‍👦");
+    }
 }

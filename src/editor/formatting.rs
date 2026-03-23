@@ -59,8 +59,8 @@ pub fn toggle_heading(line: &str, level: usize) -> String {
     if hash_count > 0 && trimmed.len() > hash_count {
         // Check that hashes are followed by a space (valid heading).
         let after_hashes = &trimmed[hash_count..];
-        if after_hashes.starts_with(' ') {
-            let content = after_hashes[1..].to_string();
+        if let Some(content) = after_hashes.strip_prefix(' ') {
+            let content = content.to_string();
             if hash_count == level {
                 // Same level — remove heading.
                 return content;

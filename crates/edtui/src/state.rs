@@ -209,6 +209,14 @@ impl EditorState {
     pub fn set_viewport_height(&mut self, height: usize) {
         self.view.update_num_rows(height);
     }
+
+    /// Capture the current buffer state as a single undo checkpoint.
+    ///
+    /// This is useful for app-level commands that perform several low-level
+    /// mutations but should still undo as one user action.
+    pub fn checkpoint(&mut self) {
+        self.capture();
+    }
 }
 
 #[cfg(test)]

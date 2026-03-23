@@ -80,24 +80,13 @@ impl Default for BrowserConfig {
 }
 
 /// Top-level application configuration.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
     pub editor: EditorConfig,
     pub focus: FocusConfig,
     pub theme: ThemeConfig,
     pub browser: BrowserConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            editor: EditorConfig::default(),
-            focus: FocusConfig::default(),
-            theme: ThemeConfig::default(),
-            browser: BrowserConfig::default(),
-        }
-    }
 }
 
 impl Config {

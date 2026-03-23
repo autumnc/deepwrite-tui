@@ -8,10 +8,58 @@ use crate::theme::Theme;
 use super::entries::EntryKind;
 use super::navigator::Navigator;
 
+pub const BROWSER_SCROLL_OFF: usize = 5;
+
 /// A prompt label and input buffer for rendering at the bottom of the browser.
 pub struct BrowserPromptInfo<'a> {
     pub label: &'a str,
     pub input: &'a str,
+}
+
+/// Split the browser panel into the list area and optional prompt area.
+pub fn split_browser_area(area: Rect, has_prompt: bool) -> (Rect, Option<Rect>) {
+    if has_prompt {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(area);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (area, None)
+    }
+}
+
+/// Return the inner list content area, excluding the title row and right border.
+pub fn browser_content_area(list_area: Rect) -> Rect {
+    Rect::new(
+        list_area.x,
+        list_area.y.saturating_add(1),
+        list_area.width.saturating_sub(1),
+        list_area.height.saturating_sub(1),
+    )
+}
+
+/// Compute the list offset needed to keep the selection within the scrolloff window.
+pub fn browser_scroll_offset(list_area: Rect, selected_list_index: Option<usize>) -> usize {
+    let visible_height = browser_content_area(list_area).height as usize;
+    if visible_height == 0 {
+        return 0;
+    }
+
+    let Some(sel) = selected_list_index else {
+        return 0;
+    };
+
+    let scrolloff = BROWSER_SCROLL_OFF.min(visible_height / 2);
+    let mut offset = 0;
+
+    if sel < offset + scrolloff {
+        offset = sel.saturating_sub(scrolloff);
+    } else if sel + scrolloff >= offset + visible_height {
+        offset = (sel + scrolloff + 1).saturating_sub(visible_height);
+    }
+
+    offset
 }
 
 /// Render the file browser panel into the given area.
@@ -32,15 +80,7 @@ pub fn render_browser_with_prompt(
     visible_indices: Option<&[usize]>,
 ) {
     // Split area: if there is a prompt, reserve the bottom line for it.
-    let (list_area, prompt_area) = if prompt.is_some() {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(1)])
-            .split(area);
-        (chunks[0], Some(chunks[1]))
-    } else {
-        (area, None)
-    };
+    let (list_area, prompt_area) = split_browser_area(area, prompt.is_some());
 
     // Build the directory title (last component of current_dir, or the full path if root)
     let dir_name = nav
@@ -115,24 +155,7 @@ pub fn render_browser_with_prompt(
 
         let mut state = ListState::default();
         state.select(selected_list_index);
-
-        // Apply scrolloff: adjust the list offset so the selected item
-        // stays at least `scrolloff` lines from the top/bottom edge.
-        if let Some(sel) = selected_list_index {
-            let visible_height = list_area.height.saturating_sub(1) as usize; // 1 for title row
-            if visible_height > 0 {
-                let scrolloff = 5usize.min(visible_height / 2);
-                let current_offset = *state.offset_mut();
-                let mut offset = current_offset;
-
-                if sel < offset + scrolloff {
-                    offset = sel.saturating_sub(scrolloff);
-                } else if sel + scrolloff >= offset + visible_height {
-                    offset = (sel + scrolloff + 1).saturating_sub(visible_height);
-                }
-                *state.offset_mut() = offset;
-            }
-        }
+        *state.offset_mut() = browser_scroll_offset(list_area, selected_list_index);
 
         frame.render_stateful_widget(list, list_area, &mut state);
     }
@@ -143,5 +166,22 @@ pub fn render_browser_with_prompt(
         let prompt_widget =
             Paragraph::new(text).style(Style::default().bg(theme.browser_selected_bg).fg(theme.fg));
         frame.render_widget(prompt_widget, p_area);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_content_area_excludes_title_row_and_border() {
+        let list_area = Rect::new(2, 3, 20, 8);
+        assert_eq!(browser_content_area(list_area), Rect::new(2, 4, 19, 7));
+    }
+
+    #[test]
+    fn browser_scroll_offset_respects_scrolloff_window() {
+        let list_area = Rect::new(0, 0, 20, 11);
+        assert_eq!(browser_scroll_offset(list_area, Some(10)), 6);
     }
 }

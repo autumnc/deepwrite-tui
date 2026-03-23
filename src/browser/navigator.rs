@@ -57,8 +57,12 @@ impl Navigator {
 
     /// Toggle visibility of hidden files and refresh.
     pub fn toggle_hidden(&mut self) {
+        let previous = self.selected_identity();
         self.show_hidden = !self.show_hidden;
         self.refresh();
+        if let Some((name, kind)) = previous {
+            self.select_entry_named(&name, kind);
+        }
     }
 
     /// Enter the selected directory (if it is a directory).
@@ -79,10 +83,18 @@ impl Navigator {
     /// Go up to the parent directory.
     /// Returns true if we moved up.
     pub fn go_up(&mut self) -> bool {
+        let child_dir_name = self
+            .current_dir
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string());
         if let Some(parent) = self.current_dir.parent() {
             self.current_dir = parent.to_path_buf();
-            self.selected = 0;
             self.refresh();
+            if let Some(name) = child_dir_name {
+                self.select_entry_named(&name, EntryKind::Directory);
+            } else {
+                self.selected = 0;
+            }
             true
         } else {
             false
@@ -114,5 +126,63 @@ impl Navigator {
             })
             .map(|(i, _)| i)
             .collect()
+    }
+
+    pub fn select_entry_named(&mut self, name: &str, kind: EntryKind) -> bool {
+        if let Some(index) = self
+            .entries
+            .iter()
+            .position(|entry| entry.name == name && entry.kind == kind)
+        {
+            self.selected = index;
+            return true;
+        }
+        false
+    }
+
+    fn selected_identity(&self) -> Option<(String, EntryKind)> {
+        self.selected_entry()
+            .map(|entry| (entry.name.clone(), entry.kind.clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn go_up_selects_previous_directory() {
+        let tmp = TempDir::new().unwrap();
+        let child = tmp.path().join("drafts");
+        fs::create_dir(&child).unwrap();
+        fs::write(child.join("note.md"), "").unwrap();
+
+        let mut nav = Navigator::new(&child, false);
+        assert!(nav.go_up());
+
+        let selected = nav.selected_entry().expect("expected selected entry");
+        assert_eq!(selected.name, "drafts");
+        assert_eq!(selected.kind, EntryKind::Directory);
+    }
+
+    #[test]
+    fn toggle_hidden_preserves_visible_selection() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join(".hidden_dir")).unwrap();
+        fs::write(tmp.path().join("visible.md"), "").unwrap();
+
+        let mut nav = Navigator::new(tmp.path(), false);
+        nav.selected = nav
+            .entries
+            .iter()
+            .position(|entry| entry.name == "visible.md")
+            .expect("expected visible file");
+
+        nav.toggle_hidden();
+
+        let selected = nav.selected_entry().expect("expected selected entry");
+        assert_eq!(selected.name, "visible.md");
     }
 }

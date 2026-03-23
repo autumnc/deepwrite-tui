@@ -130,10 +130,9 @@ pub fn find_sentence_at(text: &str, byte_offset: usize) -> SentenceRange {
 /// `col` is measured in **characters** (not bytes), matching how edtui
 /// stores cursor positions.
 pub fn cursor_to_byte_offset(text: &str, row: usize, col: usize) -> usize {
-    let mut current_row = 0;
     let mut byte_offset = 0;
 
-    for line in text.split('\n') {
+    for (current_row, line) in text.split('\n').enumerate() {
         if current_row == row {
             // Walk `col` characters into this line.
             let char_offset = line
@@ -145,7 +144,6 @@ pub fn cursor_to_byte_offset(text: &str, row: usize, col: usize) -> usize {
         }
         // +1 for the '\n' separator
         byte_offset += line.len() + 1;
-        current_row += 1;
     }
 
     // If the row is past the end, return end of text.

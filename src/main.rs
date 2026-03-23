@@ -6,7 +6,10 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{
+        DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags,
+        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -27,6 +30,8 @@ struct Cli {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    let supports_keyboard_enhancement =
+        matches!(crossterm::terminal::supports_keyboard_enhancement(), Ok(true));
 
     // Determine start directory and optional start file.
     let (start_dir, start_file) = match cli.path {
@@ -67,14 +72,28 @@ fn main() -> anyhow::Result<()> {
     // Set up panic hook to restore terminal on panic
     let original_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
-        let _ = restore_terminal();
+        let _ = restore_terminal(supports_keyboard_enhancement);
         original_hook(panic_info);
     }));
 
     // Set up terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    if supports_keyboard_enhancement {
+        execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            PushKeyboardEnhancementFlags(
+                KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                    | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+                    | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+                    | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+            ),
+        )?;
+    } else {
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    }
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -90,13 +109,22 @@ fn main() -> anyhow::Result<()> {
     let result = app.run(&mut terminal);
 
     // Restore terminal
-    restore_terminal()?;
+    restore_terminal(supports_keyboard_enhancement)?;
 
     result
 }
 
-fn restore_terminal() -> anyhow::Result<()> {
+fn restore_terminal(supports_keyboard_enhancement: bool) -> anyhow::Result<()> {
     disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+    if supports_keyboard_enhancement {
+        execute!(
+            io::stdout(),
+            PopKeyboardEnhancementFlags,
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
+    } else {
+        execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+    }
     Ok(())
 }

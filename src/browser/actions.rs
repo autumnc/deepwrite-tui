@@ -1,14 +1,24 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path};
 
 use anyhow::{Context, Result};
+
+fn validate_entry_name<'a>(name: &'a str, label: &str) -> Result<&'a str> {
+    let name = name.trim();
+    anyhow::ensure!(!name.is_empty(), "{label} cannot be empty");
+
+    let mut components = Path::new(name).components();
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(_)), None) => Ok(name),
+        _ => anyhow::bail!("{label} cannot contain path separators"),
+    }
+}
 
 /// Create a new file in the given directory.
 ///
 /// If `name` does not end with `.md` or `.txt`, `.md` is appended automatically.
 pub fn create_file(dir: &Path, name: &str) -> Result<()> {
-    let name = name.trim();
-    anyhow::ensure!(!name.is_empty(), "File name cannot be empty");
+    let name = validate_entry_name(name, "File name")?;
 
     let file_name = if name.ends_with(".md") || name.ends_with(".txt") {
         name.to_string()
@@ -25,8 +35,7 @@ pub fn create_file(dir: &Path, name: &str) -> Result<()> {
 
 /// Create a new directory inside the given parent directory.
 pub fn create_directory(dir: &Path, name: &str) -> Result<()> {
-    let name = name.trim();
-    anyhow::ensure!(!name.is_empty(), "Directory name cannot be empty");
+    let name = validate_entry_name(name, "Directory name")?;
 
     let path = dir.join(name);
     anyhow::ensure!(!path.exists(), "\"{}\" already exists", name);
@@ -38,8 +47,7 @@ pub fn create_directory(dir: &Path, name: &str) -> Result<()> {
 
 /// Rename a file or directory.
 pub fn rename_entry(dir: &Path, old_name: &str, new_name: &str) -> Result<()> {
-    let new_name = new_name.trim();
-    anyhow::ensure!(!new_name.is_empty(), "New name cannot be empty");
+    let new_name = validate_entry_name(new_name, "New name")?;
 
     let old_path = dir.join(old_name);
     let new_path = dir.join(new_name);
@@ -108,6 +116,13 @@ mod tests {
     }
 
     #[test]
+    fn test_create_file_rejects_nested_paths() {
+        let tmp = TempDir::new().unwrap();
+        assert!(create_file(tmp.path(), "../notes").is_err());
+        assert!(create_file(tmp.path(), "nested/notes").is_err());
+    }
+
+    #[test]
     fn test_create_directory() {
         let tmp = TempDir::new().unwrap();
         create_directory(tmp.path(), "subdir").unwrap();
@@ -119,6 +134,13 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         create_directory(tmp.path(), "subdir").unwrap();
         assert!(create_directory(tmp.path(), "subdir").is_err());
+    }
+
+    #[test]
+    fn test_create_directory_rejects_nested_paths() {
+        let tmp = TempDir::new().unwrap();
+        assert!(create_directory(tmp.path(), "../subdir").is_err());
+        assert!(create_directory(tmp.path(), "nested/subdir").is_err());
     }
 
     #[test]
@@ -136,6 +158,14 @@ mod tests {
         create_file(tmp.path(), "a.md").unwrap();
         create_file(tmp.path(), "b.md").unwrap();
         assert!(rename_entry(tmp.path(), "a.md", "b.md").is_err());
+    }
+
+    #[test]
+    fn test_rename_rejects_nested_paths() {
+        let tmp = TempDir::new().unwrap();
+        create_file(tmp.path(), "old.md").unwrap();
+        assert!(rename_entry(tmp.path(), "old.md", "../new.md").is_err());
+        assert!(rename_entry(tmp.path(), "old.md", "nested/new.md").is_err());
     }
 
     #[test]

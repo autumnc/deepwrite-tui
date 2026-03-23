@@ -22,6 +22,7 @@ chardetng = "0.1"
 notify = "7"
 regex = "1"
 unicode-segmentation = "1"
+unicode-width = "0.2"
 clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
