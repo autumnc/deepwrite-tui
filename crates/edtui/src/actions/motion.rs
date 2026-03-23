@@ -84,6 +84,77 @@ impl Execute for MoveDown {
     }
 }
 
+/// Move the cursor down by one visual (wrapped) line.
+#[derive(Clone, Debug, Copy)]
+pub struct MoveDownWrapped {
+    pub width: usize,
+}
+
+impl Execute for MoveDownWrapped {
+    fn execute(&mut self, state: &mut EditorState) {
+        if self.width == 0 || state.lines.is_empty() {
+            return;
+        }
+
+        let row = state.cursor.row;
+        let col = state.cursor.col;
+        let line: Vec<char> = state
+            .lines
+            .get(jagged::index::RowIndex::new(row))
+            .map(|l| l.to_vec())
+            .unwrap_or_default();
+
+        let tab_width = state.view.tab_width;
+        let wrapped = crate::view::line_wrapper::LineWrapper::wrap_line(&line, self.width, tab_width);
+        let num_visual_rows = wrapped.len().max(1);
+
+        // Find which visual row the cursor is on
+        let mut chars_before = 0;
+        let mut visual_row = 0;
+        for (i, vline) in wrapped.iter().enumerate() {
+            if chars_before + vline.len() > col {
+                visual_row = i;
+                break;
+            }
+            if i == wrapped.len() - 1 {
+                visual_row = i;
+                break;
+            }
+            chars_before += vline.len();
+        }
+        let visual_col = col - chars_before;
+
+        if visual_row + 1 < num_visual_rows {
+            // Move to next visual row within the same logical line
+            let next_row_start = chars_before + wrapped[visual_row].len();
+            let next_row_len = wrapped[visual_row + 1].len();
+            let target_col = visual_col.min(next_row_len.saturating_sub(
+                if state.mode == EditorMode::Insert { 0 } else { 1 },
+            ));
+            state.cursor.col = next_row_start + target_col;
+        } else if row + 1 < state.lines.len() {
+            // Move to the first visual row of the next logical line
+            let next_line: Vec<char> = state
+                .lines
+                .get(jagged::index::RowIndex::new(row + 1))
+                .map(|l| l.to_vec())
+                .unwrap_or_default();
+            let next_wrapped =
+                crate::view::line_wrapper::LineWrapper::wrap_line(&next_line, self.width, tab_width);
+            let next_first_len = next_wrapped.first().map_or(0, |v| v.len());
+            let target_col = visual_col.min(next_first_len.saturating_sub(
+                if state.mode == EditorMode::Insert { 0 } else { 1 },
+            ));
+            state.cursor.row = row + 1;
+            state.cursor.col = target_col;
+        }
+
+        if state.mode == EditorMode::Visual {
+            set_selection_with_lines(&mut state.selection, state.cursor, &state.lines);
+        }
+    }
+}
+
 /// Move one word forward. Breaks on the first character that is not of
 /// the same class as the initial character or breaks on line ending.
 /// Furthermore, after the first break, whitespaces are skipped.
@@ -772,6 +843,33 @@ mod tests {
         state.cursor = Index2::new(0, 3);
 
         MoveToFirst().execute(&mut state);
+        assert_eq!(state.cursor, Index2::new(0, 1));
+    }
+
+    #[test]
+    fn test_move_down_wrapped_within_same_line() {
+        let mut state = EditorState::new(Lines::from("ABCDEFGHIJ"));
+        state.mode = EditorMode::Insert;
+        state.cursor = Index2::new(0, 2);
+        MoveDownWrapped { width: 5 }.execute(&mut state);
+        assert_eq!(state.cursor, Index2::new(0, 7));
+    }
+
+    #[test]
+    fn test_move_down_wrapped_to_next_logical_line() {
+        let mut state = EditorState::new(Lines::from("ABCDE\nFGH"));
+        state.mode = EditorMode::Insert;
+        state.cursor = Index2::new(0, 2);
+        MoveDownWrapped { width: 5 }.execute(&mut state);
+        assert_eq!(state.cursor, Index2::new(1, 2));
+    }
+
+    #[test]
+    fn test_move_down_wrapped_at_bottom() {
+        let mut state = EditorState::new(Lines::from("ABC"));
+        state.mode = EditorMode::Insert;
+        state.cursor = Index2::new(0, 1);
+        MoveDownWrapped { width: 5 }.execute(&mut state);
         assert_eq!(state.cursor, Index2::new(0, 1));
     }
 }
