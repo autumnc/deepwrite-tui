@@ -155,6 +155,84 @@ impl Execute for MoveDownWrapped {
     }
 }
 
+/// Move the cursor up by one visual (wrapped) line.
+#[derive(Clone, Debug, Copy)]
+pub struct MoveUpWrapped {
+    pub width: usize,
+}
+
+impl Execute for MoveUpWrapped {
+    fn execute(&mut self, state: &mut EditorState) {
+        if self.width == 0 || state.lines.is_empty() {
+            return;
+        }
+
+        let row = state.cursor.row;
+        let col = state.cursor.col;
+        let line: Vec<char> = state
+            .lines
+            .get(jagged::index::RowIndex::new(row))
+            .map(|l| l.to_vec())
+            .unwrap_or_default();
+
+        let tab_width = state.view.tab_width;
+        let wrapped = crate::view::line_wrapper::LineWrapper::wrap_line(&line, self.width, tab_width);
+
+        // Find which visual row the cursor is on
+        let mut chars_before = 0;
+        let mut visual_row = 0;
+        for (i, vline) in wrapped.iter().enumerate() {
+            if chars_before + vline.len() > col {
+                visual_row = i;
+                break;
+            }
+            if i == wrapped.len() - 1 {
+                visual_row = i;
+                break;
+            }
+            chars_before += vline.len();
+        }
+        let visual_col = col - chars_before;
+
+        if visual_row > 0 {
+            // Move to previous visual row within the same logical line
+            let prev_row_start: usize = wrapped[..visual_row - 1].iter().map(|v| v.len()).sum();
+            let prev_row_len = wrapped[visual_row - 1].len();
+            let target_col = visual_col.min(prev_row_len.saturating_sub(
+                if state.mode == EditorMode::Insert { 0 } else { 1 },
+            ));
+            state.cursor.col = prev_row_start + target_col;
+        } else if row > 0 {
+            // Move to the last visual row of the previous logical line
+            let prev_line: Vec<char> = state
+                .lines
+                .get(jagged::index::RowIndex::new(row - 1))
+                .map(|l| l.to_vec())
+                .unwrap_or_default();
+            let prev_wrapped =
+                crate::view::line_wrapper::LineWrapper::wrap_line(&prev_line, self.width, tab_width);
+            let last_row_start: usize = if prev_wrapped.len() > 1 {
+                prev_wrapped[..prev_wrapped.len() - 1]
+                    .iter()
+                    .map(|v| v.len())
+                    .sum()
+            } else {
+                0
+            };
+            let last_row_len = prev_wrapped.last().map_or(0, |v| v.len());
+            let target_col = visual_col.min(last_row_len.saturating_sub(
+                if state.mode == EditorMode::Insert { 0 } else { 1 },
+            ));
+            state.cursor.row = row - 1;
+            state.cursor.col = last_row_start + target_col;
+        }
+
+        if state.mode == EditorMode::Visual {
+            set_selection_with_lines(&mut state.selection, state.cursor, &state.lines);
+        }
+    }
+}
+
 /// Move one word forward. Breaks on the first character that is not of
 /// the same class as the initial character or breaks on line ending.
 /// Furthermore, after the first break, whitespaces are skipped.
@@ -870,6 +948,34 @@ mod tests {
         state.mode = EditorMode::Insert;
         state.cursor = Index2::new(0, 1);
         MoveDownWrapped { width: 5 }.execute(&mut state);
+        assert_eq!(state.cursor, Index2::new(0, 1));
+    }
+
+    #[test]
+    fn test_move_up_wrapped_within_same_line() {
+        let mut state = EditorState::new(Lines::from("ABCDEFGHIJ"));
+        state.mode = EditorMode::Insert;
+        state.cursor = Index2::new(0, 7); // on 'H', visual row 1
+        MoveUpWrapped { width: 5 }.execute(&mut state);
+        assert_eq!(state.cursor, Index2::new(0, 2));
+    }
+
+    #[test]
+    fn test_move_up_wrapped_to_prev_logical_line() {
+        let mut state = EditorState::new(Lines::from("ABCDEFGHIJ\nXY"));
+        state.mode = EditorMode::Insert;
+        state.cursor = Index2::new(1, 1); // on 'Y'
+        MoveUpWrapped { width: 5 }.execute(&mut state);
+        // Should go to last visual row of line 0 (FGHIJ), col 1 → logical col 6
+        assert_eq!(state.cursor, Index2::new(0, 6));
+    }
+
+    #[test]
+    fn test_move_up_wrapped_at_top() {
+        let mut state = EditorState::new(Lines::from("ABC"));
+        state.mode = EditorMode::Insert;
+        state.cursor = Index2::new(0, 1);
+        MoveUpWrapped { width: 5 }.execute(&mut state);
         assert_eq!(state.cursor, Index2::new(0, 1));
     }
 }

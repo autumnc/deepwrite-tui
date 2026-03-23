@@ -23,7 +23,7 @@ pub use self::delete::{
 };
 pub use self::insert::{AppendNewline, InsertChar, InsertNewline, LineBreak};
 pub use self::motion::{
-    MoveBackward, MoveDown, MoveDownWrapped, MoveForward, MoveHalfPageDown, MoveHalfPageUp,
+    MoveBackward, MoveDown, MoveDownWrapped, MoveForward, MoveHalfPageDown, MoveHalfPageUp, MoveUpWrapped,
     MovePageDown, MovePageUp, MoveToEndOfLine, MoveToFirst, MoveToFirstRow, MoveToLastRow,
     MoveToMatchinBracket, MoveToStartOfLine, MoveUp, MoveWordBackward, MoveWordForward,
     MoveWordForwardToEndOfWord,
