@@ -7,6 +7,7 @@ keywords = ["ratatui", "tui", "editor", "text", "vim"]
 description = "A TUI based vim inspired editor"
 authors = ["preiter <phil.reiter93@gmail.com>"]
 license = "MIT"
+publish = false
 
 [dependencies]
 ratatui-core = { package = "ratatui-core", version = "0.1" }
