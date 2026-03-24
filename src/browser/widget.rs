@@ -14,6 +14,8 @@ pub const BROWSER_SCROLL_OFF: usize = 5;
 pub struct BrowserPromptInfo<'a> {
     pub label: &'a str,
     pub input: &'a str,
+    /// Cursor position in characters within `input`.
+    pub cursor: usize,
 }
 
 /// Split the browser panel into the list area and optional prompt area.
@@ -166,6 +168,13 @@ pub fn render_browser_with_prompt(
         let prompt_widget =
             Paragraph::new(text).style(Style::default().bg(theme.browser_selected_bg).fg(theme.fg));
         frame.render_widget(prompt_widget, p_area);
+
+        // Position the terminal cursor within the prompt input.
+        let label_width = prompt_info.label.chars().count() as u16;
+        let cursor_x = p_area.x + label_width + prompt_info.cursor as u16;
+        if cursor_x < p_area.x + p_area.width {
+            frame.set_cursor_position(ratatui::prelude::Position::new(cursor_x, p_area.y));
+        }
     }
 }
 

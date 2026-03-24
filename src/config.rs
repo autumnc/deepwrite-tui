@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -103,6 +103,7 @@ impl Config {
 
     /// Load config from `~/.config/deepwrite/config.toml`.
     /// Falls back to defaults if the file does not exist or cannot be read.
+    /// On first run, creates a template config with all options commented out.
     pub fn load() -> Self {
         let Some(path) = Self::config_path() else {
             return Self::default();
@@ -110,7 +111,41 @@ impl Config {
 
         match fs::read_to_string(&path) {
             Ok(contents) => Self::from_toml_str(&contents).unwrap_or_default(),
-            Err(_) => Self::default(),
+            Err(_) => {
+                // First run — write a template config so the user knows what's available.
+                let _ = Self::write_template(&path);
+                Self::default()
+            }
         }
+    }
+
+    /// Write a commented-out template config file.
+    fn write_template(path: &Path) -> anyhow::Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let template = r#"# Deepwrite Configuration
+# https://github.com/tomdhyang-byte/deepwrite-tui
+
+[editor]
+# line_width = 72        # 64 | 72 | 80
+# auto_save = true
+# auto_save_delay_ms = 500
+
+[focus]
+# mode = "off"           # off | sentence | paragraph | typewriter
+# opacity = 30           # 10-60, dimming intensity
+
+[theme]
+# mode = "system"        # system | light | dark
+
+[browser]
+# show_hidden = false
+# ratio = [1, 3]         # [browser, editor] panel ratio
+"#;
+
+        fs::write(path, template)?;
+        Ok(())
     }
 }

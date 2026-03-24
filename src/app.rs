@@ -32,50 +32,31 @@ use deepwrite::ui::help::render_help;
 /// Ctrl+ㄑ instead of Ctrl+F. This table reverses the standard Zhuyin
 /// keyboard layout so Ctrl shortcuts work regardless of input method.
 fn normalize_zhuyin(c: char) -> char {
+    // Standard Zhuyin (大千/Dachen) keyboard layout mapping
     match c {
-        'ㄅ' => '1',
-        'ㄆ' => 'q',
-        'ㄇ' => 'a',
-        'ㄈ' => 'z',
-        'ㄉ' => '2',
-        'ㄊ' => 'w',
-        'ㄋ' => 's',
-        'ㄌ' => 'x',
-        'ㄍ' => 'e',
-        'ㄎ' => 'd',
-        'ㄏ' => 'c',
-        'ㄐ' => 'r',
-        'ㄑ' => 'f',
-        'ㄒ' => 'v',
-        'ㄓ' => '5',
-        'ㄔ' => 't',
-        'ㄕ' => 'g',
-        'ㄖ' => 'b',
-        'ㄗ' => 'y',
-        'ㄘ' => 'h',
-        'ㄙ' => 'n',
-        'ㄚ' => 'u',
-        'ㄛ' => 'j',
-        'ㄜ' => 'm',
-        'ㄝ' => '8',
-        'ㄞ' => 'i',
-        'ㄟ' => 'k',
-        'ㄠ' => ',',
-        'ㄡ' => '9',
-        'ㄢ' => 'o',
-        'ㄣ' => 'l',
-        'ㄤ' => '.',
-        'ㄥ' => '0',
-        'ㄦ' => 'p',
-        'ㄧ' => ';',
-        'ㄨ' => '/',
-        'ㄩ' => '-',
+        // Row 1 (number row): 1 2 _ _ 5 _ _ 8 9 0 - =
+        'ㄅ' => '1', 'ㄉ' => '2', 'ㄓ' => '5',
+        'ㄚ' => '8', 'ㄞ' => '9', 'ㄢ' => '0', 'ㄦ' => '-',
+        // Row 2 (qwerty): q w e r t y u i o p
+        'ㄆ' => 'q', 'ㄊ' => 'w', 'ㄍ' => 'e', 'ㄐ' => 'r',
+        'ㄔ' => 't', 'ㄗ' => 'y', 'ㄧ' => 'u', 'ㄛ' => 'i',
+        'ㄟ' => 'o', 'ㄣ' => 'p',
+        // Row 3 (asdf): a s d f g h j k l ;
+        'ㄇ' => 'a', 'ㄋ' => 's', 'ㄎ' => 'd', 'ㄑ' => 'f',
+        'ㄕ' => 'g', 'ㄘ' => 'h', 'ㄨ' => 'j', 'ㄜ' => 'k',
+        'ㄠ' => 'l', 'ㄤ' => ';',
+        // Row 4 (zxcv): z x c v b n m , . /
+        'ㄈ' => 'z', 'ㄌ' => 'x', 'ㄏ' => 'c', 'ㄒ' => 'v',
+        'ㄖ' => 'b', 'ㄙ' => 'n', 'ㄩ' => 'm', 'ㄝ' => ',',
+        'ㄡ' => '.', 'ㄥ' => '/',
+        // Full-width punctuation
+        '，' => ',', '。' => '.', '／' => '/', '；' => ';',
         other => other,
     }
 }
 
-/// Normalize a KeyEvent: when Ctrl is held and the character is a Zhuyin
-/// symbol, map it back to ASCII so shortcuts work with CJK input methods.
+/// Normalize a KeyEvent: map Zhuyin characters back to ASCII.
+/// In Edit mode, only applies when Ctrl is held (so normal typing isn't affected).
 fn normalize_key(key: KeyEvent) -> KeyEvent {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         if let KeyCode::Char(c) = key.code {
@@ -83,6 +64,19 @@ fn normalize_key(key: KeyEvent) -> KeyEvent {
             if normalized != c {
                 return KeyEvent::new(KeyCode::Char(normalized), key.modifiers);
             }
+        }
+    }
+    key
+}
+
+/// Normalize a KeyEvent for Browse mode: always map Zhuyin to ASCII,
+/// since Browse mode uses single-key shortcuts (j, k, ., etc.) that
+/// don't involve typing text.
+fn normalize_browse_key(key: KeyEvent) -> KeyEvent {
+    if let KeyCode::Char(c) = key.code {
+        let normalized = normalize_zhuyin(c);
+        if normalized != c {
+            return KeyEvent::new(KeyCode::Char(normalized), key.modifiers);
         }
     }
     key
@@ -97,14 +91,69 @@ pub enum AppMode {
     Edit,
 }
 
+/// A text input buffer with cursor position for prompts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptInput {
+    pub text: String,
+    /// Cursor position in characters (not bytes).
+    pub cursor: usize,
+}
+
+impl PromptInput {
+    fn new(text: String) -> Self {
+        let cursor = text.chars().count();
+        Self { text, cursor }
+    }
+
+    fn empty() -> Self {
+        Self {
+            text: String::new(),
+            cursor: 0,
+        }
+    }
+
+    fn insert(&mut self, c: char) {
+        let byte_idx = self.text.char_indices().nth(self.cursor).map_or(self.text.len(), |(i, _)| i);
+        self.text.insert(byte_idx, c);
+        self.cursor += 1;
+    }
+
+    fn backspace(&mut self) {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+            let byte_idx = self.text.char_indices().nth(self.cursor).map_or(self.text.len(), |(i, _)| i);
+            self.text.remove(byte_idx);
+        }
+    }
+
+    fn delete(&mut self) {
+        let len = self.text.chars().count();
+        if self.cursor < len {
+            let byte_idx = self.text.char_indices().nth(self.cursor).map_or(self.text.len(), |(i, _)| i);
+            self.text.remove(byte_idx);
+        }
+    }
+
+    fn move_left(&mut self) {
+        self.cursor = self.cursor.saturating_sub(1);
+    }
+
+    fn move_right(&mut self) {
+        let len = self.text.chars().count();
+        if self.cursor < len {
+            self.cursor += 1;
+        }
+    }
+}
+
 /// Active prompt overlay in the browser panel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrowserPrompt {
     None,
-    Create(String),
-    Rename(String),
+    Create(PromptInput),
+    Rename(PromptInput),
     Delete,
-    Search(String),
+    Search(PromptInput),
 }
 
 #[derive(Debug, Clone)]
@@ -152,6 +201,8 @@ pub struct App {
     data_dir: PathBuf,
     browser_content_rect: Rect,
     browser_scroll_offset: usize,
+    /// True when `c` was pressed and we're waiting for the second key.
+    pending_c_prefix: bool,
 }
 
 impl App {
@@ -192,6 +243,7 @@ impl App {
             data_dir,
             browser_content_rect: Rect::default(),
             browser_scroll_offset: 0,
+            pending_c_prefix: false,
         };
         app.preview_selected_file();
         app
@@ -266,21 +318,25 @@ impl App {
             self.sync_browser_viewport(layout.browser, prompt_visible);
             let prompt_info = match &self.prompt {
                 BrowserPrompt::None => None,
-                BrowserPrompt::Create(buf) => Some(BrowserPromptInfo {
+                BrowserPrompt::Create(ref pi) => Some(BrowserPromptInfo {
                     label: "Create: ",
-                    input: buf,
+                    input: &pi.text,
+                    cursor: pi.cursor,
                 }),
-                BrowserPrompt::Rename(buf) => Some(BrowserPromptInfo {
+                BrowserPrompt::Rename(ref pi) => Some(BrowserPromptInfo {
                     label: "Rename: ",
-                    input: buf,
+                    input: &pi.text,
+                    cursor: pi.cursor,
                 }),
                 BrowserPrompt::Delete => Some(BrowserPromptInfo {
                     label: "Delete? (y/n): ",
                     input: "",
+                    cursor: 0,
                 }),
-                BrowserPrompt::Search(buf) => Some(BrowserPromptInfo {
+                BrowserPrompt::Search(ref pi) => Some(BrowserPromptInfo {
                     label: "/",
-                    input: buf,
+                    input: &pi.text,
+                    cursor: pi.cursor,
                 }),
             };
             let visible = self.search_matches.as_deref();
@@ -684,7 +740,7 @@ impl App {
 
     /// Handle key events in Browse mode.
     fn handle_browse_key(&mut self, key: KeyEvent) {
-        let key = normalize_key(key);
+        let key = normalize_browse_key(key);
 
         // Help screen intercepts all keys when visible
         if self.show_help {
@@ -694,6 +750,23 @@ impl App {
                 }
                 _ => {}
             }
+            return;
+        }
+
+        // Handle `c` prefix sequence (cc = copy path)
+        if self.pending_c_prefix {
+            self.pending_c_prefix = false;
+            if key.code == KeyCode::Char('c') {
+                if let Some(entry) = self.navigator.selected_entry() {
+                    let full_path = self.navigator.current_dir.join(&entry.name);
+                    let path_str = full_path.display().to_string();
+                    match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&path_str)) {
+                        Ok(()) => self.set_status_message(format!("Copied: {path_str}")),
+                        Err(err) => self.set_status_message(format!("Copy failed: {err}")),
+                    }
+                }
+            }
+            // Any other key after `c` just cancels the prefix
             return;
         }
 
@@ -741,11 +814,11 @@ impl App {
             }
             // ── File browser actions ──
             KeyCode::Char('a') => {
-                self.prompt = BrowserPrompt::Create(String::new());
+                self.prompt = BrowserPrompt::Create(PromptInput::empty());
             }
             KeyCode::Char('r') => {
                 if let Some(entry) = self.navigator.selected_entry() {
-                    self.prompt = BrowserPrompt::Rename(entry.name.clone());
+                    self.prompt = BrowserPrompt::Rename(PromptInput::new(entry.name.clone()));
                 }
             }
             KeyCode::Char('d') => {
@@ -754,18 +827,13 @@ impl App {
                 }
             }
             KeyCode::Char('/') => {
-                self.prompt = BrowserPrompt::Search(String::new());
+                self.prompt = BrowserPrompt::Search(PromptInput::empty());
                 self.search_matches = Some(self.navigator.filter_entries(""));
             }
-            KeyCode::Char('y') => {
-                if let Some(entry) = self.navigator.selected_entry() {
-                    let full_path = self.navigator.current_dir.join(&entry.name);
-                    let path_str = full_path.display().to_string();
-                    match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&path_str)) {
-                        Ok(()) => self.set_status_message(format!("Copied: {path_str}")),
-                        Err(err) => self.set_status_message(format!("Copy failed: {err}")),
-                    }
-                }
+            KeyCode::Char('c') => {
+                self.pending_c_prefix = true;
+                self.set_status_message("c-");
+                return; // wait for next key
             }
             KeyCode::Char('?') => {
                 self.show_help = true;
@@ -787,29 +855,52 @@ impl App {
             }
             KeyCode::Backspace => {
                 match &mut self.prompt {
-                    BrowserPrompt::Create(buf)
-                    | BrowserPrompt::Rename(buf)
-                    | BrowserPrompt::Search(buf) => {
-                        buf.pop();
+                    BrowserPrompt::Create(pi)
+                    | BrowserPrompt::Rename(pi)
+                    | BrowserPrompt::Search(pi) => {
+                        pi.backspace();
                     }
                     _ => {}
                 }
-                // Update search matches live.
-                if let BrowserPrompt::Search(ref query) = self.prompt {
-                    let matches = self.navigator.filter_entries(query);
-                    // Move selection to first match.
-                    if let Some(&first) = matches.first() {
-                        self.navigator.selected = first;
+                self.update_search_matches();
+            }
+            KeyCode::Delete => {
+                match &mut self.prompt {
+                    BrowserPrompt::Create(pi)
+                    | BrowserPrompt::Rename(pi)
+                    | BrowserPrompt::Search(pi) => {
+                        pi.delete();
                     }
-                    self.search_matches = Some(matches);
+                    _ => {}
+                }
+                self.update_search_matches();
+            }
+            KeyCode::Left => {
+                match &mut self.prompt {
+                    BrowserPrompt::Create(pi)
+                    | BrowserPrompt::Rename(pi)
+                    | BrowserPrompt::Search(pi) => {
+                        pi.move_left();
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Right => {
+                match &mut self.prompt {
+                    BrowserPrompt::Create(pi)
+                    | BrowserPrompt::Rename(pi)
+                    | BrowserPrompt::Search(pi) => {
+                        pi.move_right();
+                    }
+                    _ => {}
                 }
             }
             KeyCode::Char(c) => {
                 match &mut self.prompt {
-                    BrowserPrompt::Create(buf)
-                    | BrowserPrompt::Rename(buf)
-                    | BrowserPrompt::Search(buf) => {
-                        buf.push(c);
+                    BrowserPrompt::Create(pi)
+                    | BrowserPrompt::Rename(pi)
+                    | BrowserPrompt::Search(pi) => {
+                        pi.insert(c);
                     }
                     BrowserPrompt::Delete => {
                         // Only y/Y confirms
@@ -823,16 +914,20 @@ impl App {
                     }
                     BrowserPrompt::None => {}
                 }
-                // Update search matches live.
-                if let BrowserPrompt::Search(ref query) = self.prompt {
-                    let matches = self.navigator.filter_entries(query);
-                    if let Some(&first) = matches.first() {
-                        self.navigator.selected = first;
-                    }
-                    self.search_matches = Some(matches);
-                }
+                self.update_search_matches();
             }
             _ => {}
+        }
+    }
+
+    /// Update search matches when the search prompt text changes.
+    fn update_search_matches(&mut self) {
+        if let BrowserPrompt::Search(ref pi) = self.prompt {
+            let matches = self.navigator.filter_entries(&pi.text);
+            if let Some(&first) = matches.first() {
+                self.navigator.selected = first;
+            }
+            self.search_matches = Some(matches);
         }
     }
 
@@ -840,8 +935,8 @@ impl App {
     fn confirm_prompt(&mut self) {
         let prompt = std::mem::replace(&mut self.prompt, BrowserPrompt::None);
         match prompt {
-            BrowserPrompt::Create(name) => {
-                let trimmed = name.trim();
+            BrowserPrompt::Create(pi) => {
+                let trimmed = pi.text.trim();
                 if !trimmed.is_empty() {
                     if trimmed.ends_with('/') {
                         let dir_name = trimmed.trim_end_matches('/');
@@ -872,8 +967,8 @@ impl App {
                     }
                 }
             }
-            BrowserPrompt::Rename(new_name) => {
-                let trimmed_new_name = new_name.trim().to_string();
+            BrowserPrompt::Rename(pi) => {
+                let trimmed_new_name = pi.text.trim().to_string();
                 if let Some(entry) = self.navigator.selected_entry().cloned() {
                     let old_name = entry.name;
                     let kind = entry.kind;
@@ -1447,7 +1542,7 @@ mod tests {
         let mut app = test_app(&tmp);
         let a_key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
         app.handle_browse_key(a_key);
-        assert_eq!(app.prompt, BrowserPrompt::Create(String::new()));
+        assert_eq!(app.prompt, BrowserPrompt::Create(PromptInput::empty()));
         for c in "notes".chars() {
             let key = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
             app.handle_prompt_key(key);
@@ -1550,7 +1645,7 @@ mod tests {
         assert_eq!(app.navigator.selected, 0);
 
         app.show_help = false;
-        app.prompt = BrowserPrompt::Search(String::new());
+        app.prompt = BrowserPrompt::Search(PromptInput::empty());
         app.handle_mouse_event(&scroll);
         assert_eq!(app.navigator.selected, 0);
     }
@@ -1573,7 +1668,7 @@ mod tests {
         fs::write(tmp.path().join("notes.md"), "").unwrap();
 
         let mut app = test_app(&tmp);
-        app.prompt = BrowserPrompt::Create("notes".to_string());
+        app.prompt = BrowserPrompt::Create(PromptInput::new("notes".to_string()));
         app.confirm_prompt();
 
         let message = app
