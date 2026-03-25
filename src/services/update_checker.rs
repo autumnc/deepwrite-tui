@@ -26,16 +26,12 @@ struct LatestReleaseResponse {
 
 /// Compare two semver strings. Returns true if `latest` is newer than `current`.
 pub fn is_newer_version(current: &str, latest: &str) -> bool {
-    fn parse(v: &str) -> Option<(u32, u32, u32)> {
-        let core = v
-            .trim()
-            .strip_prefix('v')
-            .unwrap_or(v.trim())
-            .split_once('-')
-            .map_or(
-                v.trim().strip_prefix('v').unwrap_or(v.trim()),
-                |(prefix, _)| prefix,
-            );
+    fn parse(v: &str) -> Option<(u32, u32, u32, bool)> {
+        let trimmed = v.trim().strip_prefix('v').unwrap_or(v.trim());
+        let (core, has_pre) = match trimmed.split_once('-') {
+            Some((prefix, _)) => (prefix, true),
+            None => (trimmed, false),
+        };
         let mut parts = core.split('.');
         let major = parts.next()?.parse().ok()?;
         let minor = parts.next()?.parse().ok()?;
@@ -43,11 +39,19 @@ pub fn is_newer_version(current: &str, latest: &str) -> bool {
         if parts.next().is_some() {
             return None;
         }
-        Some((major, minor, patch))
+        Some((major, minor, patch, has_pre))
     }
 
     match (parse(current), parse(latest)) {
-        (Some(c), Some(l)) => l > c,
+        (Some((cm, ci, cp, c_pre)), Some((lm, li, lp, l_pre))) => {
+            let c_tuple = (cm, ci, cp);
+            let l_tuple = (lm, li, lp);
+            if l_tuple != c_tuple {
+                return l_tuple > c_tuple;
+            }
+            // Same triplet: prerelease < stable (e.g., 0.1.0-rc.1 < 0.1.0)
+            c_pre && !l_pre
+        }
         _ => false,
     }
 }

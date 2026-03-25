@@ -4,7 +4,7 @@
 
 **Goal:** Show a one-line notification when a newer version of Deepwrite is available on GitHub, so users know to upgrade.
 
-**Architecture:** On startup, spawn a background thread that checks GitHub Releases API for the latest version. Compare with the compiled-in version. If newer, set a flag on App that the status bar renders. Cache the last check timestamp to avoid hitting the API every launch — check at most once per day.
+**Architecture:** On startup, Deepwrite may spawn a background thread that calls the GitHub Releases API for the latest stable release and compares it with the compiled-in version. The app stores an optional receiver and, if a newer version is found, an `update_available` string that the status bar renders. To avoid turning the existing test suite into implicit network tests, `App` gets a crate-private constructor that accepts an injected update-check receiver; production uses the real checker, while tests pass `None`. To enforce rate limiting, the checker records a `last_attempt_at` timestamp before spawning the thread, so the app performs at most one update-check attempt per 24 hours.
 
 **Tech Stack:** `ureq` (lightweight blocking HTTP client), `serde_json` (parse GitHub API response), `std::thread` (background check), `std::sync::mpsc` (channel to send result back to main thread)
 
@@ -14,13 +14,14 @@
 
 | Action | File | Purpose |
 |--------|------|---------|
+| Modify | `Cargo.toml` | Add networking/parsing dependencies |
+| Modify | `src/config.rs` | Add `[updates]` config section and template docs |
+| Modify | `tests/config_test.rs` | Verify update config defaults and parsing |
 | Create | `src/services/update_checker.rs` | Background version check logic |
 | Modify | `src/services/mod.rs` | Export new module |
-| Modify | `src/app.rs` | Add update check receiver, display logic |
-| Modify | `src/ui/status_bar.rs` | Render update notification |
-| Modify | `src/config.rs` | Add `[updates]` config section |
-| Modify | `Cargo.toml` | Add `ureq` and `serde_json` dependencies |
-| Create | `tests/update_checker.rs` | Tests for version comparison logic |
+| Modify | `src/app.rs` | Add update-check receiver, test-safe constructor, polling |
+| Modify | `src/ui/status_bar.rs` | Render update notification using styled spans |
+| Create | `tests/update_checker.rs` | Tests for version comparison and cache timing helpers |
 
 ---
 
@@ -29,7 +30,7 @@
 **Files:**
 - Modify: `Cargo.toml`
 
-- [ ] **Step 1: Add ureq and serde_json to Cargo.toml**
+- [ ] **Step 1: Add `ureq` and `serde_json` to `Cargo.toml`**
 
 Add to `[dependencies]`:
 
@@ -38,7 +39,7 @@ ureq = "3"
 serde_json = "1"
 ```
 
-`ureq` is a minimal blocking HTTP client (no async runtime needed). `serde_json` parses the GitHub API response. Both are lightweight.
+`ureq` is a minimal blocking HTTP client, and `serde_json` parses the GitHub API response body.
 
 - [ ] **Step 2: Verify it compiles**
 
@@ -50,42 +51,49 @@ Expected: no errors.
 
 ```bash
 git add Cargo.toml Cargo.lock
-git commit -m "chore: add ureq and serde_json for update checking"
+git commit -m "chore: add dependencies for update checking"
 ```
 
 ---
 
-### Task 2: Add update config section
+### Task 2: Add update config section and template docs
 
 **Files:**
 - Modify: `src/config.rs`
+- Modify: `tests/config_test.rs`
 
-- [ ] **Step 1: Write test for update config defaults**
+- [ ] **Step 1: Extend config tests in `tests/config_test.rs`**
 
-Add to `tests/config.rs` (or the existing config test file):
+Add assertions for the new config defaults:
 
 ```rust
 #[test]
 fn test_update_config_defaults() {
-    let config: Config = toml::from_str("").unwrap();
-    assert!(config.updates.check_on_startup);
+    let cfg = Config::default();
+    assert!(cfg.updates.check_on_startup);
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `cargo test test_update_config_defaults`
-
-Expected: FAIL — `updates` field doesn't exist on Config yet.
-
-- [ ] **Step 3: Add UpdateConfig struct to config.rs**
-
-In `src/config.rs`, add:
+Also extend the existing partial-TOML parsing test with:
 
 ```rust
-#[derive(Debug, Clone, Deserialize)]
+assert!(cfg.updates.check_on_startup);
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cargo test config_test`
+
+Expected: FAIL because `Config` has no `updates` field yet.
+
+- [ ] **Step 3: Add `UpdateConfig` to `src/config.rs`**
+
+Add:
+
+```rust
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(default)]
 pub struct UpdateConfig {
-    #[serde(default = "default_true")]
     pub check_on_startup: bool,
 }
 
@@ -96,46 +104,53 @@ impl Default for UpdateConfig {
         }
     }
 }
-
-fn default_true() -> bool {
-    true
-}
 ```
 
-Add to the `Config` struct:
+Add the field to `Config`:
 
 ```rust
-#[serde(default)]
 pub updates: UpdateConfig,
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Update the generated config template**
 
-Run: `cargo test test_update_config_defaults`
+In `Config::write_template`, add a commented-out section:
+
+```toml
+[updates]
+# check_on_startup = true
+```
+
+This keeps the new feature discoverable for users.
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+Run: `cargo test config_test`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/config.rs tests/
+git add src/config.rs tests/config_test.rs
 git commit -m "feat: add update check config section"
 ```
 
 ---
 
-### Task 3: Implement version comparison and GitHub check
+### Task 3: Implement update checker core
 
 **Files:**
 - Create: `src/services/update_checker.rs`
 - Modify: `src/services/mod.rs`
+- Create: `tests/update_checker.rs`
 
-- [ ] **Step 1: Write tests for version comparison**
+- [ ] **Step 1: Write tests for pure version/timing helpers**
 
 Create `tests/update_checker.rs`:
 
 ```rust
-use deepwrite::services::update_checker::is_newer_version;
+use deepwrite::services::update_checker::{is_check_due, is_newer_version};
 
 #[test]
 fn test_newer_version() {
@@ -158,17 +173,35 @@ fn test_older_version() {
 fn test_version_with_v_prefix() {
     assert!(is_newer_version("0.1.0", "v0.2.0"));
 }
+
+#[test]
+fn test_check_is_due_after_interval() {
+    assert!(is_check_due(0, 86_400));
+}
+
+#[test]
+fn test_check_is_not_due_before_interval() {
+    assert!(!is_check_due(1_000, 1_000 + 60));
+}
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test test_newer_version`
+Run: `cargo test update_checker`
 
-Expected: FAIL — module doesn't exist yet.
+Expected: FAIL because the module does not exist yet.
 
-- [ ] **Step 3: Create update_checker.rs**
+- [ ] **Step 3: Create `src/services/update_checker.rs`**
 
-Create `src/services/update_checker.rs`:
+Implement:
+
+- `UpdateCheckResult { latest_version: String, is_newer: bool }`
+- `is_newer_version(current, latest) -> bool`
+- `is_check_due(last_attempt_secs, now_secs) -> bool`
+- `check_for_updates() -> Option<mpsc::Receiver<UpdateCheckResult>>`
+- internal helpers for fetching/parsing the GitHub release response
+
+Recommended skeleton:
 
 ```rust
 use std::sync::mpsc;
@@ -179,73 +212,42 @@ const GITHUB_API_URL: &str =
     "https://api.github.com/repos/tomdhyang/deepwrite-tui/releases/latest";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+const CHECK_INTERVAL_SECS: u64 = 86_400;
 
-/// Compare two semver strings. Returns true if `latest` is newer than `current`.
-pub fn is_newer_version(current: &str, latest: &str) -> bool {
-    let parse = |v: &str| -> Option<(u32, u32, u32)> {
-        let v = v.strip_prefix('v').unwrap_or(v);
-        let parts: Vec<&str> = v.split('.').collect();
-        if parts.len() != 3 {
-            return None;
-        }
-        Some((
-            parts[0].parse().ok()?,
-            parts[1].parse().ok()?,
-            parts[2].parse().ok()?,
-        ))
-    };
-
-    match (parse(current), parse(latest)) {
-        (Some(c), Some(l)) => l > c,
-        _ => false,
-    }
-}
-
-/// Result of an update check.
 pub struct UpdateCheckResult {
     pub latest_version: String,
     pub is_newer: bool,
 }
 
-/// Spawn a background thread that checks GitHub for the latest release.
-/// Returns a receiver that will eventually contain the result (or nothing if the check fails).
-pub fn check_for_updates() -> mpsc::Receiver<UpdateCheckResult> {
+pub fn is_newer_version(current: &str, latest: &str) -> bool {
+    // Parse simple semver triplets, ignoring an optional leading 'v'.
+    // Return false on malformed input.
+}
+
+pub fn is_check_due(last_attempt_secs: u64, now_secs: u64) -> bool {
+    now_secs.saturating_sub(last_attempt_secs) >= CHECK_INTERVAL_SECS
+}
+
+pub fn check_for_updates() -> Option<mpsc::Receiver<UpdateCheckResult>> {
     let (tx, rx) = mpsc::channel();
 
     thread::spawn(move || {
         let result = check_latest_version();
-        // Ignore send error — receiver may have been dropped if app quit early
         let _ = tx.send(result);
     });
 
-    rx
-}
-
-fn check_latest_version() -> UpdateCheckResult {
-    let response = ureq::get(GITHUB_API_URL)
-        .header("User-Agent", "deepwrite-update-checker")
-        .timeout(CHECK_TIMEOUT)
-        .call();
-
-    let latest_version = response
-        .ok()
-        .and_then(|r| r.into_body().read_to_string().ok())
-        .and_then(|body| {
-            let json: serde_json::Value = serde_json::from_str(&body).ok()?;
-            json["tag_name"].as_str().map(String::from)
-        })
-        .unwrap_or_default();
-
-    let is_newer = !latest_version.is_empty() && is_newer_version(CURRENT_VERSION, &latest_version);
-
-    UpdateCheckResult {
-        latest_version: latest_version.trim_start_matches('v').to_string(),
-        is_newer,
-    }
+    Some(rx)
 }
 ```
 
-- [ ] **Step 4: Export module in services/mod.rs**
+For the HTTP/JSON path:
+
+- Set a `User-Agent` header.
+- Fail silently on request or parse errors.
+- Read `tag_name`.
+- Trim a leading `v` before storing `latest_version`.
+
+- [ ] **Step 4: Export the module**
 
 Add to `src/services/mod.rs`:
 
@@ -257,124 +259,171 @@ pub mod update_checker;
 
 Run: `cargo test update_checker`
 
-Expected: all 4 tests pass.
+Expected: all helper tests pass.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/services/update_checker.rs src/services/mod.rs tests/update_checker.rs
-git commit -m "feat: add update checker with GitHub Releases API"
+git commit -m "feat: add update checker core"
 ```
 
 ---
 
-### Task 4: Integrate into App startup and event loop
+### Task 4: Integrate into `App` without polluting tests
 
 **Files:**
 - Modify: `src/app.rs`
 
-- [ ] **Step 1: Add fields to App struct**
+- [ ] **Step 1: Add fields to `App`**
 
-Add to the `App` struct:
+Add:
 
 ```rust
 update_check_rx: Option<mpsc::Receiver<update_checker::UpdateCheckResult>>,
-pub update_available: Option<String>, // Latest version string, if newer
+pub update_available: Option<String>,
 ```
 
-- [ ] **Step 2: Initialize in App::new()**
+- [ ] **Step 2: Add a test-safe constructor**
 
-In `App::new()`, after existing initialization:
+Keep the existing public API:
+
+```rust
+pub fn new(config: Config, start_dir: PathBuf) -> Self
+```
+
+But make it delegate to a crate-private helper:
+
+```rust
+fn new_with_update_receiver(
+    config: Config,
+    start_dir: PathBuf,
+    update_check_rx: Option<mpsc::Receiver<update_checker::UpdateCheckResult>>,
+) -> Self
+```
+
+Production code should compute:
 
 ```rust
 let update_check_rx = if config.updates.check_on_startup {
-    Some(update_checker::check_for_updates())
+    update_checker::check_for_updates()
 } else {
     None
 };
 ```
 
-Set `update_available: None` in the struct initialization.
+Then call `new_with_update_receiver(...)`.
 
-- [ ] **Step 3: Poll in the event loop**
+This keeps startup behavior intact while allowing tests to inject `None`.
 
-In the `run()` method, inside the main loop (alongside auto_save and file_watcher polling), add:
+- [ ] **Step 3: Update app tests to disable network checks**
+
+Inside the `src/app.rs` test module:
+
+- update `test_app(...)` to call `new_with_update_receiver(..., None)`
+- update any direct `App::new(...)` calls in tests to also use `new_with_update_receiver(..., None)` where appropriate
+
+Goal: no existing test should spawn a real update-check thread.
+
+- [ ] **Step 4: Poll the receiver with a borrow-safe pattern**
+
+In `run()`, add non-blocking polling using `take()` so the code compiles cleanly:
 
 ```rust
-// Check for update result (non-blocking)
-if let Some(rx) = &self.update_check_rx {
-    if let Ok(result) = rx.try_recv() {
-        if result.is_newer {
-            self.update_available = Some(result.latest_version);
+if let Some(rx) = self.update_check_rx.take() {
+    match rx.try_recv() {
+        Ok(result) => {
+            if result.is_newer {
+                self.update_available = Some(result.latest_version);
+            }
         }
-        self.update_check_rx = None; // Done checking
+        Err(mpsc::TryRecvError::Empty) => {
+            self.update_check_rx = Some(rx);
+        }
+        Err(mpsc::TryRecvError::Disconnected) => {}
     }
 }
 ```
 
-- [ ] **Step 4: Verify it compiles and tests pass**
+Do not use a pattern that borrows `&self.update_check_rx` and then assigns `self.update_check_rx = None` in the same scope.
+
+- [ ] **Step 5: Verify it compiles and tests pass**
 
 Run: `cargo check && cargo test`
 
-Expected: no errors, all tests pass.
+Expected: no errors, all tests pass, and the existing test suite remains network-free.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/app.rs
-git commit -m "feat: integrate update checker into app startup and event loop"
+git commit -m "feat: integrate update checker into app startup"
 ```
 
 ---
 
-### Task 5: Render notification in status bar
+### Task 5: Render the notification in the status bar
 
 **Files:**
 - Modify: `src/ui/status_bar.rs`
-- Modify: `src/app.rs` (the render call site)
+- Modify: `src/app.rs`
 
-- [ ] **Step 1: Add update_available parameter to render_status_bar**
+- [ ] **Step 1: Extend `render_status_bar`**
 
-Update the `render_status_bar` function signature to accept an optional update version:
-
-```rust
-pub fn render_status_bar(
-    frame: &mut Frame,
-    area: Rect,
-    filename: &str,
-    word_count: usize,
-    char_count: usize,
-    focus_label: &str,
-    theme: &Theme,
-    update_available: Option<&str>,  // NEW
-)
-```
-
-- [ ] **Step 2: Render update notification**
-
-In the function body, when `update_available` is `Some(version)`, render a notification on the left side or center of the status bar. For example, prepend to the right section:
+Update the function signature to accept:
 
 ```rust
-let right_text = if let Some(version) = update_available {
-    format!("Update: {} available  |  {} words  {} chars", version, word_count, char_count)
-} else {
-    format!("{} words  {} chars", word_count, char_count)
-};
+update_available: Option<&str>,
 ```
 
-Use the theme's accent or warning color to make "Update: X available" visually distinct.
+- [ ] **Step 2: Switch the right-hand content to styled spans**
 
-- [ ] **Step 3: Update the call site in app.rs**
+The current status bar renders the right side as one plain string. To make the update notification visually distinct, refactor the right-hand side to build a `Line`/`Span` sequence instead of a single `String`.
 
-Where `render_status_bar` is called, pass `self.update_available.as_deref()`.
+Recommended shape:
 
-- [ ] **Step 4: Verify it compiles**
+```rust
+let right_line = build_right_status_line(word_count, char_count, update_available, theme);
+```
 
-Run: `cargo check`
+Where:
 
-Expected: no errors.
+- `"Update: X available"` uses `theme.accent`
+- separators and counts continue using the normal status-bar style
+- if `update_available` is `None`, the output remains the existing word/char count
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Preserve the current layout behavior**
+
+Keep these invariants:
+
+- filename/mode remains on the left
+- status message or focus label remains in the center
+- update notification lives on the right and does not replace the center status message
+- truncation still respects grapheme boundaries and narrow layouts
+
+- [ ] **Step 4: Update the call site in `src/app.rs`**
+
+Pass:
+
+```rust
+self.update_available.as_deref()
+```
+
+- [ ] **Step 5: Add or update unit tests in `src/ui/status_bar.rs`**
+
+Cover at least:
+
+- no update available -> right section is just counts
+- update available -> update segment is present
+- existing truncation helpers still behave correctly
+
+- [ ] **Step 6: Verify it compiles**
+
+Run: `cargo check && cargo test status_bar`
+
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/ui/status_bar.rs src/app.rs
@@ -383,25 +432,34 @@ git commit -m "feat: show update notification in status bar"
 
 ---
 
-### Task 6: Cache check timestamp (rate limiting)
+### Task 6: Add cache-based rate limiting using `last_attempt_at`
 
 **Files:**
 - Modify: `src/services/update_checker.rs`
 
-- [ ] **Step 1: Add cache file logic**
+- [ ] **Step 1: Add cache-file helpers**
 
-The cache file goes at `~/.local/share/deepwrite/last_update_check` (via `dirs::data_dir()`). It stores the Unix timestamp of the last check.
+Store the timestamp at:
 
-Add to `update_checker.rs`:
+```text
+~/.local/share/deepwrite/last_update_check
+```
+
+Implement helpers such as:
 
 ```rust
 use std::fs;
 use std::path::PathBuf;
 
-const CHECK_INTERVAL_SECS: u64 = 86400; // 24 hours
-
 fn cache_path() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join("deepwrite").join("last_update_check"))
+}
+
+fn current_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn should_check() -> bool {
@@ -409,38 +467,35 @@ fn should_check() -> bool {
         return true;
     };
 
-    let Ok(contents) = fs::read_to_string(&path) else {
+    let Ok(contents) = fs::read_to_string(path) else {
         return true;
     };
 
-    let Ok(last_check) = contents.trim().parse::<u64>() else {
+    let Ok(last_attempt) = contents.trim().parse::<u64>() else {
         return true;
     };
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-
-    now - last_check > CHECK_INTERVAL_SECS
+    is_check_due(last_attempt, current_unix_secs())
 }
 
-fn update_cache() {
-    let Some(path) = cache_path() else { return };
+fn record_check_attempt() {
+    let Some(path) = cache_path() else {
+        return;
+    };
+
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs().to_string())
-        .unwrap_or_default();
-    let _ = fs::write(path, now);
+
+    let _ = fs::write(path, current_unix_secs().to_string());
 }
 ```
 
-- [ ] **Step 2: Integrate into check_for_updates()**
+Use `saturating_sub` inside `is_check_due` so future timestamps do not underflow.
 
-Modify `check_for_updates()`:
+- [ ] **Step 2: Record the attempt before spawning the thread**
+
+Update `check_for_updates()` to:
 
 ```rust
 pub fn check_for_updates() -> Option<mpsc::Receiver<UpdateCheckResult>> {
@@ -448,11 +503,12 @@ pub fn check_for_updates() -> Option<mpsc::Receiver<UpdateCheckResult>> {
         return None;
     }
 
+    record_check_attempt();
+
     let (tx, rx) = mpsc::channel();
 
     thread::spawn(move || {
         let result = check_latest_version();
-        update_cache();
         let _ = tx.send(result);
     });
 
@@ -460,9 +516,9 @@ pub fn check_for_updates() -> Option<mpsc::Receiver<UpdateCheckResult>> {
 }
 ```
 
-Update `App::new()` accordingly (the return type changed from `Receiver` to `Option<Receiver>`).
+This is intentionally `last_attempt_at`, not `last_success_at`, so the app truly performs at most one check attempt per 24 hours.
 
-- [ ] **Step 3: Verify it compiles and tests pass**
+- [ ] **Step 3: Run tests**
 
 Run: `cargo check && cargo test`
 
@@ -471,8 +527,8 @@ Expected: no errors, all tests pass.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/services/update_checker.rs src/app.rs
-git commit -m "feat: cache update check timestamp (once per day max)"
+git add src/services/update_checker.rs
+git commit -m "feat: rate limit update checks to once per day"
 ```
 
 ---
@@ -481,12 +537,19 @@ git commit -m "feat: cache update check timestamp (once per day max)"
 
 After all 6 tasks, the user experience is:
 
-```
+```text
 $ deepwrite
-[status bar shows: "Update: 0.2.0 available | 342 words  1,205 chars"]
+[status bar shows: "Update: 0.2.0 available | 342W  1,205C"]
 ```
 
-- Check happens in background, never blocks startup
-- At most once per 24 hours (cached)
-- Configurable: set `check_on_startup = false` in config to disable
-- Fails silently (no error if offline or API fails)
+- Check happens in the background and never blocks startup
+- The app performs at most one update-check attempt per 24 hours
+- Existing tests stay deterministic because they do not spawn real network checks
+- Users can disable the behavior with:
+
+```toml
+[updates]
+check_on_startup = false
+```
+
+- Failures remain silent: if offline or GitHub is unavailable, Deepwrite simply shows no update notice
