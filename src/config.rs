@@ -79,6 +79,22 @@ impl Default for BrowserConfig {
     }
 }
 
+/// Update-check configuration.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct UpdateConfig {
+    /// Whether to check GitHub Releases for updates on startup.
+    pub check_on_startup: bool,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            check_on_startup: true,
+        }
+    }
+}
+
 /// Top-level application configuration.
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(default)]
@@ -87,6 +103,7 @@ pub struct Config {
     pub focus: FocusConfig,
     pub theme: ThemeConfig,
     pub browser: BrowserConfig,
+    pub updates: UpdateConfig,
 }
 
 impl Config {
@@ -126,7 +143,7 @@ impl Config {
         }
 
         let template = r#"# Deepwrite Configuration
-# https://github.com/tomdhyang-byte/deepwrite-tui
+# https://github.com/tomdhyang/deepwrite-tui
 
 [editor]
 # line_width = 72        # 64 | 72 | 80
@@ -143,6 +160,9 @@ impl Config {
 [browser]
 # show_hidden = false
 # ratio = [1, 3]         # [browser, editor] panel ratio
+
+[updates]
+# check_on_startup = true
 "#;
 
         fs::write(path, template)?;

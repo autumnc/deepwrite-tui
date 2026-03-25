@@ -1,6 +1,10 @@
 //! Status bar rendering.
 
-use ratatui::{prelude::*, widgets::Paragraph};
+use ratatui::{
+    prelude::*,
+    text::{Line, Span},
+    widgets::Paragraph,
+};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -10,7 +14,8 @@ use crate::theme::Theme;
 ///
 /// - Left: filename (or mode hint)
 /// - Center: focus mode label (if active)
-/// - Right: word count + char count
+/// - Right: update notice (if any) + word count + char count
+#[allow(clippy::too_many_arguments)]
 pub fn render_status_bar(
     frame: &mut Frame,
     area: Rect,
@@ -19,6 +24,7 @@ pub fn render_status_bar(
     char_count: usize,
     focus_label: &str,
     theme: &Theme,
+    update_available: Option<&str>,
 ) {
     let style = Style::default()
         .fg(theme.status_bar_fg)
@@ -26,7 +32,6 @@ pub fn render_status_bar(
 
     let left = filename.to_string();
     let center = focus_label.to_string();
-    let right = format!("{word_count}W  {char_count}C");
     let width = area.width as usize;
     if width == 0 {
         return;
@@ -34,20 +39,24 @@ pub fn render_status_bar(
 
     let left = truncate_to_width(&left, width);
     let center = truncate_to_width(&center, width);
-    let right = truncate_to_width(&right, width);
+    let right_spans = build_right_status_spans(word_count, char_count, update_available, theme);
 
     frame.render_widget(Paragraph::new(" ".repeat(width)).style(style), area);
 
-    let right_width = display_width(&right).min(width) as u16;
+    let right_width = spans_display_width(&right_spans).min(width) as u16;
     let right_area = Rect::new(
         area.x + area.width.saturating_sub(right_width),
         area.y,
         right_width,
         area.height,
     );
-    if !right.is_empty() && right_area.width > 0 {
+    if !right_spans.is_empty() && right_area.width > 0 {
+        let right_line = Line::from(truncate_spans_to_width(
+            &right_spans,
+            right_area.width as usize,
+        ));
         frame.render_widget(
-            Paragraph::new(right)
+            Paragraph::new(right_line)
                 .style(style)
                 .alignment(Alignment::Right),
             right_area,
@@ -87,6 +96,68 @@ fn display_width(text: &str) -> usize {
     UnicodeWidthStr::width(text)
 }
 
+fn build_right_status_spans(
+    word_count: usize,
+    char_count: usize,
+    update_available: Option<&str>,
+    theme: &Theme,
+) -> Vec<Span<'static>> {
+    let style = Style::default()
+        .fg(theme.status_bar_fg)
+        .bg(theme.status_bar_bg);
+    let accent_style = style.fg(theme.accent);
+    let mut spans = Vec::new();
+
+    if let Some(version) = update_available {
+        spans.push(Span::styled(
+            format!("Update: {version} available"),
+            accent_style,
+        ));
+        spans.push(Span::styled(" | ", style));
+    }
+
+    spans.push(Span::styled(format!("{word_count}W  {char_count}C"), style));
+    spans
+}
+
+fn spans_display_width(spans: &[Span<'_>]) -> usize {
+    spans
+        .iter()
+        .map(|span| display_width(span.content.as_ref()))
+        .sum()
+}
+
+fn truncate_spans_to_width(spans: &[Span<'_>], max_width: usize) -> Vec<Span<'static>> {
+    if max_width == 0 {
+        return Vec::new();
+    }
+
+    let mut truncated = Vec::new();
+    let mut current_width = 0;
+
+    for span in spans {
+        let mut content = String::new();
+        for grapheme in span.content.as_ref().graphemes(true) {
+            let grapheme_width = display_width(grapheme);
+            if current_width + grapheme_width > max_width {
+                break;
+            }
+            content.push_str(grapheme);
+            current_width += grapheme_width;
+        }
+
+        if !content.is_empty() {
+            truncated.push(Span::styled(content, span.style));
+        }
+
+        if current_width >= max_width {
+            break;
+        }
+    }
+
+    truncated
+}
+
 fn truncate_to_width(text: &str, max_width: usize) -> String {
     if max_width == 0 {
         return String::new();
@@ -110,6 +181,7 @@ fn truncate_to_width(text: &str, max_width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::style::Color;
 
     #[test]
     fn truncate_to_width_respects_wide_characters() {
@@ -120,5 +192,41 @@ mod tests {
     #[test]
     fn truncate_to_width_keeps_full_graphemes() {
         assert_eq!(truncate_to_width("a👨‍👩‍👧‍👦b", 3), "a👨‍👩‍👧‍👦");
+    }
+
+    #[test]
+    fn build_right_status_spans_without_update_shows_counts_only() {
+        let theme = Theme::light();
+        let spans = build_right_status_spans(342, 1205, None, &theme);
+
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content.as_ref(), "342W  1205C");
+        assert_eq!(spans[0].style.fg, Some(theme.status_bar_fg));
+        assert_eq!(spans[0].style.bg, Some(theme.status_bar_bg));
+    }
+
+    #[test]
+    fn build_right_status_spans_with_update_highlights_update_segment() {
+        let theme = Theme::dark();
+        let spans = build_right_status_spans(342, 1205, Some("0.2.0"), &theme);
+
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content.as_ref(), "Update: 0.2.0 available");
+        assert_eq!(spans[0].style.fg, Some(theme.accent));
+        assert_eq!(spans[0].style.bg, Some(theme.status_bar_bg));
+        assert_eq!(spans[1].content.as_ref(), " | ");
+        assert_eq!(spans[2].content.as_ref(), "342W  1205C");
+        assert_ne!(spans[0].style.fg, Some(Color::Reset));
+    }
+
+    #[test]
+    fn truncate_spans_to_width_preserves_span_styles() {
+        let theme = Theme::light();
+        let spans = build_right_status_spans(342, 1205, Some("0.2.0"), &theme);
+        let truncated = truncate_spans_to_width(&spans, display_width("Update: 0.2.0"));
+
+        assert!(!truncated.is_empty());
+        assert_eq!(truncated[0].style.fg, Some(theme.accent));
+        assert!(truncated.iter().all(|span| !span.content.is_empty()));
     }
 }

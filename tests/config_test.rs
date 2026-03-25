@@ -19,6 +19,9 @@ fn test_default_config() {
     // Browser defaults
     assert!(!cfg.browser.show_hidden);
     assert_eq!(cfg.browser.ratio, [1, 3]);
+
+    // Update defaults
+    assert!(cfg.updates.check_on_startup);
 }
 
 #[test]
@@ -44,6 +47,13 @@ mode = "sentence"
     assert_eq!(cfg.theme.mode, "system");
     assert!(!cfg.browser.show_hidden);
     assert_eq!(cfg.browser.ratio, [1, 3]);
+    assert!(cfg.updates.check_on_startup);
+}
+
+#[test]
+fn test_update_config_defaults() {
+    let cfg = Config::default();
+    assert!(cfg.updates.check_on_startup);
 }
 
 #[test]

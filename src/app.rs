@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{
@@ -24,6 +25,7 @@ use deepwrite::editor::EditorWrapper;
 use deepwrite::services::auto_save::AutoSave;
 use deepwrite::services::file_io;
 use deepwrite::services::file_watcher::FileWatcher;
+use deepwrite::services::update_checker;
 use deepwrite::theme::Theme;
 use deepwrite::ui::help::render_help;
 
@@ -242,6 +244,8 @@ pub struct App {
     data_dir: PathBuf,
     browser_content_rect: Rect,
     browser_scroll_offset: usize,
+    update_check_rx: Option<mpsc::Receiver<update_checker::UpdateCheckResult>>,
+    pub update_available: Option<String>,
     /// True when `c` was pressed and we're waiting for the second key.
     pending_c_prefix: bool,
 }
@@ -249,6 +253,19 @@ pub struct App {
 impl App {
     /// Create a new App from the given configuration, rooted in `start_dir`.
     pub fn new(config: Config, start_dir: std::path::PathBuf) -> Self {
+        let update_check_rx = if config.updates.check_on_startup {
+            update_checker::check_for_updates()
+        } else {
+            None
+        };
+        Self::new_with_update_receiver(config, start_dir, update_check_rx)
+    }
+
+    fn new_with_update_receiver(
+        config: Config,
+        start_dir: std::path::PathBuf,
+        update_check_rx: Option<mpsc::Receiver<update_checker::UpdateCheckResult>>,
+    ) -> Self {
         let theme = Theme::from_config(&config.theme.mode, config.focus.opacity);
         let show_hidden = config.browser.show_hidden;
         let editor_line_width = config.editor.line_width;
@@ -284,6 +301,8 @@ impl App {
             data_dir,
             browser_content_rect: Rect::default(),
             browser_scroll_offset: 0,
+            update_check_rx,
+            update_available: None,
             pending_c_prefix: false,
         };
         app.preview_selected_file();
@@ -303,6 +322,20 @@ impl App {
             if event::poll(Duration::from_millis(100))? {
                 let ev = event::read()?;
                 self.handle_event(&ev)?;
+            }
+
+            if let Some(rx) = self.update_check_rx.take() {
+                match rx.try_recv() {
+                    Ok(result) => {
+                        if result.is_newer {
+                            self.update_available = Some(result.latest_version);
+                        }
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {
+                        self.update_check_rx = Some(rx);
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {}
+                }
             }
 
             // Auto-save check
@@ -436,6 +469,7 @@ impl App {
             cc,
             center_label,
             &self.theme,
+            self.update_available.as_deref(),
         );
 
         // Help overlay
@@ -1368,7 +1402,8 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_app(root: &TempDir) -> App {
-        let mut app = App::new(Config::default(), root.path().to_path_buf());
+        let mut app =
+            App::new_with_update_receiver(Config::default(), root.path().to_path_buf(), None);
         app.data_dir = root.path().join("app-data");
         app
     }
@@ -1390,7 +1425,7 @@ mod tests {
         )
         .unwrap();
 
-        let app = App::new(config, tmp.path().to_path_buf());
+        let app = App::new_with_update_receiver(config, tmp.path().to_path_buf(), None);
         assert_eq!(app.editor_line_width, 64);
         assert_eq!(app.editor_render_width, 64);
         assert_eq!(app.auto_save.delay, Duration::from_millis(1500));
@@ -1597,7 +1632,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let empty = tmp.path().join("empty");
         std::fs::create_dir(&empty).unwrap();
-        let mut app = App::new(Config::default(), empty);
+        let mut app = App::new_with_update_receiver(Config::default(), empty, None);
         app.data_dir = tmp.path().join("app-data");
 
         // Pressing 'y' with no entries should not panic
