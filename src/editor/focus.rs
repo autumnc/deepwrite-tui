@@ -63,7 +63,7 @@ pub struct FocusRange {
 /// Returns the indentation width if the line starts with a supported Markdown
 /// list marker, otherwise `None`.
 fn list_marker_indent(line: &str) -> Option<usize> {
-    let indent = line.chars().take_while(|c| *c == ' ').count();
+    let indent = line.chars().take_while(|c| c.is_whitespace()).count();
 
     // Avoid treating 4-space indented code blocks as lists.
     if indent > 3 {
@@ -75,26 +75,40 @@ fn list_marker_indent(line: &str) -> Option<usize> {
         return Some(indent);
     }
 
+    // Ordered list: one or more digits followed by `.` or `)` then a space.
+    // Matches markdown.rs: r"^(\s*)(\d+[.)]) "
     let digits = trimmed.chars().take_while(|c| c.is_ascii_digit()).count();
-    if digits > 0 && trimmed[digits..].starts_with(". ") {
-        return Some(indent);
+    if digits > 0 {
+        let after = &trimmed[digits..];
+        if after.starts_with(". ") || after.starts_with(") ") {
+            return Some(indent);
+        }
     }
 
     None
 }
 
-/// Returns true if the given row is inside a fenced code block.
-fn is_inside_fenced_code(lines: &[&str], row: usize) -> bool {
+/// Build a per-row mask: true if that row is inside a fenced code block
+/// (including the fence lines themselves).
+fn build_fenced_code_mask(lines: &[&str]) -> Vec<bool> {
+    let mut mask = vec![false; lines.len()];
     let mut inside = false;
     for (i, line) in lines.iter().enumerate() {
         if line.trim_start().starts_with("```") {
-            inside = !inside;
-        }
-        if i == row {
-            return inside;
+            if !inside {
+                // Opening fence — mark it and everything after as inside
+                inside = true;
+                mask[i] = true;
+            } else {
+                // Closing fence — mark it as inside, then toggle off
+                mask[i] = true;
+                inside = false;
+            }
+        } else {
+            mask[i] = inside;
         }
     }
-    inside
+    mask
 }
 
 /// Find the scope for sentence-mode focus at the given cursor row.
@@ -113,8 +127,10 @@ fn find_sentence_scope_at_cursor(text: &str, cursor_row: usize) -> Option<FocusR
         return None;
     }
 
+    let code_mask = build_fenced_code_mask(&lines);
+
     // Inside fenced code: each line is its own unit.
-    if is_inside_fenced_code(&lines, cursor_row) {
+    if code_mask[cursor_row] {
         return Some(FocusRange {
             start_row: cursor_row,
             end_row: cursor_row,
@@ -132,10 +148,7 @@ fn find_sentence_scope_at_cursor(text: &str, cursor_row: usize) -> Option<FocusR
         let mut found = None;
         while row > 0 {
             row -= 1;
-            if lines[row].trim().is_empty() {
-                break;
-            }
-            if is_inside_fenced_code(&lines, row) {
+            if lines[row].trim().is_empty() || code_mask[row] {
                 break;
             }
             if list_marker_indent(lines[row]).is_some() {
@@ -419,6 +432,26 @@ mod tests {
     #[test]
     fn find_sentence_at_cursor_does_not_treat_fenced_code_as_a_list() {
         let source = "```md\n- not a list item for focus\n- still code\n```\n";
+
+        // Content inside fenced code — single row
+        let focus = find_sentence_at_cursor(source, 1, 3);
+        assert_eq!(focus.start_row, 1);
+        assert_eq!(focus.end_row, 1);
+
+        // Opening fence — also single row
+        let focus = find_sentence_at_cursor(source, 0, 0);
+        assert_eq!(focus.start_row, 0);
+        assert_eq!(focus.end_row, 0);
+
+        // Closing fence — also single row
+        let focus = find_sentence_at_cursor(source, 3, 0);
+        assert_eq!(focus.start_row, 3);
+        assert_eq!(focus.end_row, 3);
+    }
+
+    #[test]
+    fn find_sentence_at_cursor_handles_ordered_list_with_paren() {
+        let source = "1) First item\n2) Second item\n3) Third item\n";
 
         let focus = find_sentence_at_cursor(source, 1, 3);
         assert_eq!(focus.start_row, 1);
