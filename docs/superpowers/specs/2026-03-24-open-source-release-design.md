@@ -16,7 +16,7 @@ Deepwrite is a terminal-based Markdown writing tool. This spec defines the plan 
 | Versioning | SemVer 0.x (start at 0.1.0) | Natural continuation; no premature stability commitment |
 | Forked edtui | `publish = false`, independent versioning | Internal implementation detail; users never see it |
 | GitHub repo | `tomdhyang/deepwrite-tui` (personal account) | Keep it simple |
-| Release automation | git-cliff + release-plz + cargo-dist ("Golden Trio") | Maximum automation, minimum manual work |
+| Release automation | cargo-release + git-cliff + cargo-dist | One local command triggers the full pipeline |
 
 ## Phase 1: Pre-Release Cleanup
 
@@ -89,23 +89,28 @@ Outputs:
 - PowerShell installer script (`installer.ps1`)
 - Updated Homebrew formula
 
-### 2.3 Release-plz Workflow (`.github/workflows/release-plz.yml`)
+### 2.3 Local Release via cargo-release (`release.toml`)
 
-Triggers: push to main
+> **Note:** Originally planned for release-plz, but switched to cargo-release due to a known release-plz bug with workspace path dependencies ([#2595](https://github.com/release-plz/release-plz/issues/2595)).
+
+Run locally: `cargo release patch --execute` (or `minor`)
 
 Behavior:
-- Analyzes commits since last release
-- Opens/updates a "Release PR" with version bump + CHANGELOG update
-- On merge: creates git tag, which triggers cargo-dist
+- Bumps version in `Cargo.toml`
+- Runs `git-cliff` pre-release hook to update `CHANGELOG.md`
+- Commits with `chore(release): release <version>` (skipped by git-cliff)
+- Creates git tag (e.g., `v0.1.1`)
+- Pushes commit + tag to origin
+- cargo-dist detects the tag and builds/publishes automatically
 
-Configuration (`release-plz.toml`):
+Configuration (`release.toml`):
 ```toml
-[workspace]
-git_release_enable = false  # cargo-dist handles GitHub Releases
-
-[[package]]
-name = "edtui"
-release = false  # skip the forked crate
+allow-branch = ["main"]
+sign-commit = false
+sign-tag = false
+publish = false
+pre-release-hook = ["git-cliff", "-o", "CHANGELOG.md", "--tag", "{{version}}"]
+pre-release-commit-message = "chore(release): release {{version}}"
 ```
 
 ### 2.4 Homebrew Tap
@@ -151,7 +156,7 @@ Conventional Commits (already in use):
 
 ### Automation
 
-release-plz reads commit messages and automatically determines the next version number. No manual version editing required.
+`cargo release` bumps the version, updates the changelog via git-cliff, commits, tags, and pushes — all in one command. cargo-dist then handles binary building and distribution automatically.
 
 ### edtui versioning
 
@@ -176,18 +181,19 @@ Push to main
 CI runs (fmt, clippy, test)
         |
         v
-release-plz opens/updates Release PR
-(auto: version bump + CHANGELOG update)
+Ready to release? Run locally:
+  cargo release patch --execute  (or minor)
         |
         v
-Review and merge Release PR
-        |
-        v
-release-plz creates git tag (e.g., v0.2.0)
+cargo-release automatically:
+  - Bumps version in Cargo.toml
+  - Runs git-cliff to update CHANGELOG.md
+  - Commits + creates git tag (e.g., v0.2.0)
+  - Pushes to origin
         |
         v
 cargo-dist triggers:
-  - Build 4 platform binaries
+  - Build 5 platform binaries
   - Create GitHub Release
   - Generate install scripts
   - Update Homebrew tap formula
@@ -198,7 +204,7 @@ cargo-dist triggers:
 | Concern | Tool |
 |---------|------|
 | Changelog generation | git-cliff |
-| Release automation | release-plz |
+| Release automation | cargo-release (local) |
 | Binary building & distribution | cargo-dist |
 | Homebrew | cargo-dist (auto-generates formula) |
 | CI (PRs/pushes) | Custom ci.yml (fmt + clippy + test) |
@@ -212,5 +218,5 @@ cargo-dist triggers:
 4. Initialize cargo-dist (`dist init`) — targets: macOS Intel/ARM + Linux x64 + Windows x64; installers: shell + powershell + homebrew
 5. Set up git-cliff (`cliff.toml`)
 6. Create Homebrew tap repo (`tomdhyang/homebrew-tap`)
-7. Set up release-plz GitHub Action + `release-plz.toml`
+7. Set up cargo-release (`release.toml`) with git-cliff pre-release hook
 8. First release: tag `v0.1.0`
