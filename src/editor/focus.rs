@@ -63,14 +63,23 @@ pub struct FocusRange {
 /// Returns the indentation width if the line starts with a supported Markdown
 /// list marker, otherwise `None`.
 fn list_marker_indent(line: &str) -> Option<usize> {
-    let indent = line.chars().take_while(|c| c.is_whitespace()).count();
+    let mut indent = 0;
+    let mut indent_bytes = 0;
+    for (byte_idx, ch) in line.char_indices() {
+        if ch.is_whitespace() {
+            indent += 1;
+            indent_bytes = byte_idx + ch.len_utf8();
+        } else {
+            break;
+        }
+    }
 
     // Avoid treating 4-space indented code blocks as lists.
     if indent > 3 {
         return None;
     }
 
-    let trimmed = &line[indent..];
+    let trimmed = &line[indent_bytes..];
     if trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ ") {
         return Some(indent);
     }
@@ -94,7 +103,7 @@ fn build_fenced_code_mask(lines: &[&str]) -> Vec<bool> {
     let mut mask = vec![false; lines.len()];
     let mut inside = false;
     for (i, line) in lines.iter().enumerate() {
-        if line.trim_start().starts_with("```") {
+        if line.starts_with("```") {
             if !inside {
                 // Opening fence — mark it and everything after as inside
                 inside = true;
@@ -164,7 +173,7 @@ fn find_sentence_scope_at_cursor(text: &str, cursor_row: usize) -> Option<FocusR
             // Scan downward from the anchor, including continuation lines.
             let mut end_row = anchor_row;
             for (r, line) in lines.iter().enumerate().skip(anchor_row + 1) {
-                if line.trim().is_empty() {
+                if line.trim().is_empty() || code_mask[r] {
                     break;
                 }
                 if list_marker_indent(line).is_some() {
@@ -456,5 +465,32 @@ mod tests {
         let focus = find_sentence_at_cursor(source, 1, 3);
         assert_eq!(focus.start_row, 1);
         assert_eq!(focus.end_row, 1);
+    }
+
+    #[test]
+    fn find_sentence_at_cursor_handles_unicode_whitespace_indent() {
+        let source = "\u{3000}- First item\n\u{3000}- Second item\n";
+
+        let focus = find_sentence_at_cursor(source, 1, 3);
+        assert_eq!(focus.start_row, 1);
+        assert_eq!(focus.end_row, 1);
+    }
+
+    #[test]
+    fn find_sentence_at_cursor_stops_list_scope_before_fenced_code() {
+        let source = "- First item\n```md\ncode\n```\n";
+
+        let focus = find_sentence_at_cursor(source, 0, 2);
+        assert_eq!(focus.start_row, 0);
+        assert_eq!(focus.end_row, 0);
+    }
+
+    #[test]
+    fn find_sentence_at_cursor_does_not_treat_indented_fence_as_code_block() {
+        let source = "  ```md\n- not code block syntax for this editor\n  ```\n";
+
+        let focus = find_sentence_at_cursor(source, 0, 2);
+        assert_eq!(focus.start_row, 0);
+        assert_eq!(focus.end_row, 2);
     }
 }
