@@ -1,5 +1,10 @@
 [workspace]
 git_release_enable = false
+release_always = false
+
+[[package]]
+name = "deepwrite"
+git_only = true
 
 [[package]]
 name = "edtui"
