@@ -647,11 +647,14 @@ impl App {
     }
 
     fn handle_mouse_event(&mut self, mouse: &crossterm::event::MouseEvent) {
-        if self.mode != AppMode::Browse
-            || !self.show_browser
-            || self.show_help
-            || self.prompt != BrowserPrompt::None
-        {
+        if self.mode == AppMode::Edit {
+            self.editor
+                .handle_event(Event::Mouse(*mouse));
+            self.editor.update_highlights(&self.theme, self.focus_mode);
+            return;
+        }
+
+        if !self.show_browser || self.show_help || self.prompt != BrowserPrompt::None {
             return;
         }
 
