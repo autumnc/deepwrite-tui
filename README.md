@@ -1,90 +1,89 @@
 # Deepwrite
 
-A terminal-based Markdown writing tool that combines **Yazi-style file browsing** with **iA Writer-style focused writing**.
+在終端機裡寫 Markdown 的工具，結合 **Yazi 風格的檔案瀏覽** 和 **iA Writer 風格的專注寫作**。
 
-Built for anyone who works with Markdown — writers, developers, and "vibe coders" who use AI tools like Claude Code for documentation.
+給所有用 Markdown 工作的人 — 寫作者、開發者，以及透過 AI 工具（如 Claude Code）處理文件的 vibe coders。
 
-## Features
+## 功能
 
-- **Two-mode interface** — Browse files on the left, edit on the right
-- **Focus Mode** — Sentence, paragraph, and typewriter dimming to help you concentrate
-- **Non-modal editing** — Just start typing. Arrow keys, not `hjkl`. Emacs-style shortcuts (Ctrl+A/E for home/end)
-- **Markdown syntax highlighting** — Headings, bold, italic, code blocks, links
-- **Formatting shortcuts** — Ctrl+B for bold, Ctrl+I for italic, Ctrl+1/2/3 for headings
-- **CJK-aware word count** — Accurate counting for Chinese, Japanese, Korean text
-- **Auto-save** — Debounced 2-second writes via temp file + atomic rename
-- **External change detection** — Picks up file changes from other editors
-- **Light/dark theme** — Auto-detects system preference
-- **Configurable** — `~/.config/deepwrite/config.toml`
+- **雙模式介面** — 左側瀏覽檔案，右側編輯
+- **專注模式（Focus Mode）** — 句子、段落、打字機三種淡化模式，幫助你集中注意力
+- **非模態編輯** — 打開就能打字，方向鍵移動，Emacs 風格快捷鍵（Ctrl+A/E 跳到行首/行尾）
+- **Markdown 語法高亮** — 標題、粗體、斜體、程式碼區塊、連結
+- **格式化快捷鍵** — Ctrl+B 粗體、Ctrl+I 斜體、Ctrl+1/2/3 標題
+- **中日韓字數統計** — 精確的 CJK 字元計數
+- **自動儲存** — 2 秒延遲寫入，透過暫存檔 + 原子重新命名確保安全
+- **外部變更偵測** — 自動偵測其他編輯器的檔案修改
+- **淺色/深色主題** — 自動偵測系統偏好
+- **可自訂** — `~/.config/deepwrite/config.toml`
 
-## Installation
+## 安裝
 
-### Homebrew (macOS / Linux)
+### Homebrew（macOS / Linux）
 
 ```bash
-brew tap tomdhyang/tap
-brew install deepwrite
+brew install tomdhyang/tap/deepwrite
 ```
 
-### Pre-built binaries
+### 預編譯 Binary
 
-Download from [GitHub Releases](https://github.com/tomdhyang/deepwrite-tui/releases).
+從 [GitHub Releases](https://github.com/tomdhyang/deepwrite-tui/releases) 下載。
 
-Available for macOS (Intel + Apple Silicon), Linux (x64), and Windows (x64).
+支援 macOS（Intel + Apple Silicon）、Linux（x64 + ARM64）、Windows（x64）。
 
-### Build from source
+### 從原始碼編譯
 
 ```bash
 cargo install --git https://github.com/tomdhyang/deepwrite-tui.git
 ```
 
-Requires [Rust](https://rustup.rs/) (latest stable recommended).
+需要 [Rust](https://rustup.rs/)（建議使用最新穩定版）。
 
-## Usage
+## 使用方式
 
 ```bash
-# Open current directory
+# 開啟目前目錄
 deepwrite
 
-# Open a specific directory
+# 開啟指定目錄
 deepwrite ~/Documents/notes
 
-# Open a specific file
+# 開啟指定檔案
 deepwrite README.md
 ```
 
-### Browse Mode
+### 瀏覽模式
 
-| Key | Action |
-|-----|--------|
-| `j` / `Down` | Move down |
-| `k` / `Up` | Move up |
-| `Enter` / `l` | Open file / enter directory |
-| `h` / `Backspace` | Go to parent directory |
-| `a` | Create new file or directory |
-| `r` | Rename |
-| `d` | Delete |
-| `y` | Copy file path |
-| `?` | Help |
-| `q` | Quit |
+| 按鍵 | 動作 |
+|------|------|
+| `j` / `Down` | 向下移動 |
+| `k` / `Up` | 向上移動 |
+| `Enter` / `l` | 開啟檔案 / 進入目錄 |
+| `h` / `Backspace` | 回到上層目錄 |
+| `a` | 新增檔案或目錄 |
+| `r` | 重新命名 |
+| `d` | 刪除 |
+| `y` | 複製檔案路徑 |
+| `?` | 說明 |
+| `q` | 離開 |
 
-### Edit Mode
+### 編輯模式
 
-| Key | Action |
-|-----|--------|
-| `Esc` | Back to Browse |
-| `Ctrl+B` | Bold |
-| `Ctrl+I` | Italic |
-| `Ctrl+1/2/3` | Heading 1/2/3 |
-| `Ctrl+A` | Go to line start |
-| `Ctrl+E` | Go to line end |
-| `Ctrl+C` | Copy |
-| `Ctrl+V` | Paste |
-| `Ctrl+Z` | Undo |
+| 按鍵 | 動作 |
+|------|------|
+| `Esc` | 回到瀏覽模式 |
+| `Ctrl+B` | 粗體 |
+| `Ctrl+I` | 斜體 |
+| `Ctrl+1/2/3` | 標題 1/2/3 |
+| `Ctrl+A` | 跳到行首 |
+| `Ctrl+E` | 跳到行尾 |
+| `Ctrl+C` | 複製 |
+| `Ctrl+V` | 貼上 |
+| `Ctrl+Z` | 復原 |
 
-## Configuration
+## 設定
 
-Config file at `~/.config/deepwrite/config.toml`:
+設定檔位於 `~/.config/deepwrite/config.toml`：
 
 ```toml
 [editor]
@@ -100,10 +99,10 @@ mode = "auto"         # "auto", "light", "dark"
 show_hidden = false
 ```
 
-## License
+## 授權
 
 [MIT](LICENSE)
 
-## Contributing
+## 貢獻
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+請參閱 [CONTRIBUTING.md](CONTRIBUTING.md)。
