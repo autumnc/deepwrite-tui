@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-03-25
+
+### Bug Fixes
+
+- Clippy warnings in list scope detection and mouse handler formatting
+- Address code review for list focus detection
+- Address list focus code review findings
+
+### Documentation
+
+- Rewrite README in Traditional Chinese for target audience
+- Add product positioning to README
+- Add list item focus mode implementation plan
+- Rewrite list item focus plan per code review
+
+### Features
+
+- Enable mouse support in Edit mode (click, drag, scroll)
+- Scope sentence focus to markdown list entry blocks
+
+### Testing
+
+- Cover sentence focus behavior for markdown lists
 ## [0.2.0] - 2026-03-25
 
 ### Bug Fixes
@@ -14,6 +37,7 @@ All notable changes to this project will be documented in this file.
 - Move git_only to workspace level to trigger release-plz --workspace cargo package fix
 - Address code review findings for release workflow
 - Reset CHANGELOG to Unreleased and fix plan version reference
+- Add dist=true so cargo-dist includes deepwrite despite publish=false
 
 ### Documentation
 
