@@ -9,6 +9,7 @@ homepage = "https://github.com/tomdhyang/deepwrite-tui"
 readme = "README.md"
 keywords = ["markdown", "tui", "editor", "writing", "focus"]
 categories = ["command-line-utilities", "text-editors"]
+publish = false
 
 [workspace]
 members = ["crates/edtui"]
