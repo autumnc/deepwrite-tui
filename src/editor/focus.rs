@@ -122,7 +122,7 @@ fn find_sentence_scope_at_cursor(text: &str, cursor_row: usize) -> Option<FocusR
     }
 
     // Try to find the list marker anchor for the cursor row.
-    let anchor = if list_marker_indent(&lines[cursor_row]).is_some() {
+    let anchor = if list_marker_indent(lines[cursor_row]).is_some() {
         // Cursor is directly on a list marker line.
         Some(cursor_row)
     } else {
@@ -138,7 +138,7 @@ fn find_sentence_scope_at_cursor(text: &str, cursor_row: usize) -> Option<FocusR
             if is_inside_fenced_code(&lines, row) {
                 break;
             }
-            if list_marker_indent(&lines[row]).is_some() {
+            if list_marker_indent(lines[row]).is_some() {
                 found = Some(row);
                 break;
             }
@@ -150,11 +150,11 @@ fn find_sentence_scope_at_cursor(text: &str, cursor_row: usize) -> Option<FocusR
         Some(anchor_row) => {
             // Scan downward from the anchor, including continuation lines.
             let mut end_row = anchor_row;
-            for r in (anchor_row + 1)..lines.len() {
-                if lines[r].trim().is_empty() {
+            for (r, line) in lines.iter().enumerate().skip(anchor_row + 1) {
+                if line.trim().is_empty() {
                     break;
                 }
-                if list_marker_indent(&lines[r]).is_some() {
+                if list_marker_indent(line).is_some() {
                     // New sibling list marker — stop.
                     break;
                 }
