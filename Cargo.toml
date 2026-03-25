@@ -21,7 +21,7 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 dirs = "6"
-edtui = { path = "crates/edtui", default-features = false, features = ["arboard"] }
+edtui = { path = "crates/edtui", version = "0.11.2", default-features = false, features = ["arboard"] }
 arboard = "3"
 encoding_rs = "0.8"
 chardetng = "0.1"
