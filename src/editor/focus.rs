@@ -60,16 +60,128 @@ pub struct FocusRange {
     pub end_row: usize,
 }
 
+/// Returns the indentation width if the line starts with a supported Markdown
+/// list marker, otherwise `None`.
+fn list_marker_indent(line: &str) -> Option<usize> {
+    let indent = line.chars().take_while(|c| *c == ' ').count();
+
+    // Avoid treating 4-space indented code blocks as lists.
+    if indent > 3 {
+        return None;
+    }
+
+    let trimmed = &line[indent..];
+    if trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ ") {
+        return Some(indent);
+    }
+
+    let digits = trimmed.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits > 0 && trimmed[digits..].starts_with(". ") {
+        return Some(indent);
+    }
+
+    None
+}
+
+/// Returns true if the given row is inside a fenced code block.
+fn is_inside_fenced_code(lines: &[&str], row: usize) -> bool {
+    let mut inside = false;
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim_start().starts_with("```") {
+            inside = !inside;
+        }
+        if i == row {
+            return inside;
+        }
+    }
+    inside
+}
+
+/// Find the scope for sentence-mode focus at the given cursor row.
+///
+/// For list entries, returns only the single list item block (marker + continuation
+/// lines). For fenced code blocks, returns just the cursor row. For normal prose,
+/// falls back to `find_paragraph_at_cursor`.
+fn find_sentence_scope_at_cursor(text: &str, cursor_row: usize) -> Option<FocusRange> {
+    let lines: Vec<&str> = text.split('\n').collect();
+
+    if cursor_row >= lines.len() {
+        return None;
+    }
+
+    if lines[cursor_row].trim().is_empty() {
+        return None;
+    }
+
+    // Inside fenced code: each line is its own unit.
+    if is_inside_fenced_code(&lines, cursor_row) {
+        return Some(FocusRange {
+            start_row: cursor_row,
+            end_row: cursor_row,
+        });
+    }
+
+    // Try to find the list marker anchor for the cursor row.
+    let anchor = if list_marker_indent(&lines[cursor_row]).is_some() {
+        // Cursor is directly on a list marker line.
+        Some(cursor_row)
+    } else {
+        // Scan upward within the same contiguous non-blank block to find the
+        // nearest preceding list marker row.
+        let mut row = cursor_row;
+        let mut found = None;
+        while row > 0 {
+            row -= 1;
+            if lines[row].trim().is_empty() {
+                break;
+            }
+            if is_inside_fenced_code(&lines, row) {
+                break;
+            }
+            if list_marker_indent(&lines[row]).is_some() {
+                found = Some(row);
+                break;
+            }
+        }
+        found
+    };
+
+    match anchor {
+        Some(anchor_row) => {
+            // Scan downward from the anchor, including continuation lines.
+            let mut end_row = anchor_row;
+            for r in (anchor_row + 1)..lines.len() {
+                if lines[r].trim().is_empty() {
+                    break;
+                }
+                if list_marker_indent(&lines[r]).is_some() {
+                    // New sibling list marker — stop.
+                    break;
+                }
+                end_row = r;
+            }
+            Some(FocusRange {
+                start_row: anchor_row,
+                end_row,
+            })
+        }
+        None => {
+            // No list marker found — fall back to paragraph detection.
+            find_paragraph_at_cursor(text, cursor_row)
+        }
+    }
+}
+
 /// Find the sentence at the cursor position and return the row range that
 /// should remain bright (not dimmed).
 ///
-/// Strategy: first find the paragraph containing the cursor, then do sentence
-/// detection only within that paragraph. This prevents headings, list items,
-/// and other non-sentence Markdown elements from being merged into one giant
-/// "sentence" spanning multiple paragraphs.
+/// Strategy: first find the scope containing the cursor (list entry or
+/// paragraph), then do sentence detection only within that scope. This
+/// prevents headings, list items, and other non-sentence Markdown elements
+/// from being merged into one giant "sentence" spanning multiple paragraphs.
 pub fn find_sentence_at_cursor(text: &str, cursor_row: usize, cursor_col: usize) -> FocusRange {
-    // Step 1: Find the paragraph containing the cursor
-    let para = match find_paragraph_at_cursor(text, cursor_row) {
+    // Step 1: Find the scope containing the cursor (list entry or paragraph)
+    let para = match find_sentence_scope_at_cursor(text, cursor_row) {
         Some(p) => p,
         None => {
             // Cursor on a blank line — just highlight that single line
