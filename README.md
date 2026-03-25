@@ -1,8 +1,8 @@
 # Deepwrite
 
-在終端機裡寫 Markdown 的工具，結合 **Yazi 風格的檔案瀏覽** 和 **iA Writer 風格的專注寫作**。
+在 AI 開發的時代，程式碼可以交給 AI 寫，但 spec、文件、技術決策還是得你自己掌握。Deepwrite 讓你在終端機裡專注地閱讀和編輯 Markdown 文件 — 開發的同時，隨時切過來審核、修改你的文件。
 
-給所有用 Markdown 工作的人 — 寫作者、開發者，以及透過 AI 工具（如 Claude Code）處理文件的 vibe coders。
+結合 **Yazi 風格的檔案瀏覽** 和 **iA Writer 風格的專注寫作**，給 vibe coders 和開發者打造。
 
 ## 功能
 
