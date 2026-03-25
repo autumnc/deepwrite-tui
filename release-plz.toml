@@ -4,6 +4,7 @@ release_always = false
 
 [[package]]
 name = "deepwrite"
+publish = false
 git_only = true
 
 [[package]]
