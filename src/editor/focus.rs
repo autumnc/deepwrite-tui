@@ -267,4 +267,49 @@ mod tests {
         assert_eq!(focus.start_row, 0);
         assert_eq!(focus.end_row, 1);
     }
+
+    #[test]
+    fn find_sentence_at_cursor_highlights_single_bullet_item() {
+        let source = "### Bug Fixes\n\n- Fix alpha\n- Fix beta\n- Fix gamma\n";
+
+        let focus = find_sentence_at_cursor(source, 3, 4);
+        assert_eq!(focus.start_row, 3);
+        assert_eq!(focus.end_row, 3);
+    }
+
+    #[test]
+    fn find_sentence_at_cursor_highlights_single_numbered_item() {
+        let source = "Steps:\n\n1. First step\n2. Second step\n3. Third step\n";
+
+        let focus = find_sentence_at_cursor(source, 3, 4);
+        assert_eq!(focus.start_row, 3);
+        assert_eq!(focus.end_row, 3);
+    }
+
+    #[test]
+    fn find_sentence_at_cursor_keeps_list_continuation_lines_together() {
+        let source = "- This is a long item that\n  continues on the next line\n- Second item\n";
+
+        let focus = find_sentence_at_cursor(source, 1, 5);
+        assert_eq!(focus.start_row, 0);
+        assert_eq!(focus.end_row, 1);
+    }
+
+    #[test]
+    fn find_paragraph_still_treats_a_list_as_one_blank_line_delimited_paragraph() {
+        let source = "- Fix alpha\n- Fix beta\n- Fix gamma\n";
+
+        let result = find_paragraph_at_cursor(source, 1).unwrap();
+        assert_eq!(result.start_row, 0);
+        assert_eq!(result.end_row, 2);
+    }
+
+    #[test]
+    fn find_sentence_at_cursor_does_not_treat_fenced_code_as_a_list() {
+        let source = "```md\n- not a list item for focus\n- still code\n```\n";
+
+        let focus = find_sentence_at_cursor(source, 1, 3);
+        assert_eq!(focus.start_row, 1);
+        assert_eq!(focus.end_row, 1);
+    }
 }
