@@ -2,13 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.1.1] - 2026-03-25
+
+### Bug Fixes
+
+- Address code review findings in CI and release workflows
+- Add version to edtui path dependency for cargo package compatibility
+- Mark deepwrite as publish=false to skip cargo package in release-plz
+- Align release-plz config with Cargo.toml publish=false for deepwrite
+- Disable semver check in release-plz to avoid cargo package on forked edtui
+- Move git_only to workspace level to trigger release-plz --workspace cargo package fix
+
+### Documentation
+
+- Add update notification implementation plan
+- Update notification implementation plan (revised)
+
+### Features
+
+- Add update notification on startup
+
+### Miscellaneous
+
+- Replace release-plz with cargo-release
+- Replace release-plz with cargo-release and update docs
+## [0.1.0] - 2026-03-25
 
 ### Bug Fixes
 
 - Correct off-by-one in scrolloff and mouse click row calculation
 - Handle unsupported key codes instead of panicking
 - Correct wrapped line movement behavior
+- Resolve clippy warning and formatting issues for CI
 
 ### CI
 
@@ -46,3 +71,4 @@ All notable changes to this project will be documented in this file.
 - Clean up tracked OS artifacts, stale edtui workflows, and improve .gitignore
 - Add MIT license
 - Add package metadata and mark edtui as non-publishable
+- Add git-cliff config and generate initial changelog

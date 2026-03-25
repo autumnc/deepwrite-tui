@@ -309,6 +309,22 @@ impl App {
         app
     }
 
+    fn poll_update_check_result(&mut self) {
+        if let Some(rx) = self.update_check_rx.take() {
+            match rx.try_recv() {
+                Ok(result) => {
+                    if result.is_newer {
+                        self.update_available = Some(result.latest_version);
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    self.update_check_rx = Some(rx);
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {}
+            }
+        }
+    }
+
     /// Run the main event loop.
     pub fn run(
         &mut self,
@@ -324,19 +340,7 @@ impl App {
                 self.handle_event(&ev)?;
             }
 
-            if let Some(rx) = self.update_check_rx.take() {
-                match rx.try_recv() {
-                    Ok(result) => {
-                        if result.is_newer {
-                            self.update_available = Some(result.latest_version);
-                        }
-                    }
-                    Err(mpsc::TryRecvError::Empty) => {
-                        self.update_check_rx = Some(rx);
-                    }
-                    Err(mpsc::TryRecvError::Disconnected) => {}
-                }
-            }
+            self.poll_update_check_result();
 
             // Auto-save check
             if self.config.editor.auto_save && self.auto_save.should_save() {
@@ -1399,6 +1403,7 @@ mod tests {
     use super::*;
     use crossterm::event::{KeyEvent, MouseEvent};
     use ratatui::{backend::TestBackend, Terminal};
+    use std::sync::mpsc;
     use tempfile::TempDir;
 
     fn test_app(root: &TempDir) -> App {
@@ -1443,6 +1448,57 @@ mod tests {
         terminal.draw(|frame| app.draw(frame)).unwrap();
 
         assert_eq!(app.editor_render_width, 20);
+    }
+
+    #[test]
+    fn poll_update_check_result_sets_update_available_when_newer() {
+        let tmp = TempDir::new().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let mut app =
+            App::new_with_update_receiver(Config::default(), tmp.path().to_path_buf(), Some(rx));
+
+        tx.send(update_checker::UpdateCheckResult {
+            latest_version: "0.2.0".to_string(),
+            is_newer: true,
+        })
+        .unwrap();
+
+        app.poll_update_check_result();
+
+        assert_eq!(app.update_available.as_deref(), Some("0.2.0"));
+        assert!(app.update_check_rx.is_none());
+    }
+
+    #[test]
+    fn poll_update_check_result_requeues_empty_receiver() {
+        let tmp = TempDir::new().unwrap();
+        let (_tx, rx) = mpsc::channel();
+        let mut app =
+            App::new_with_update_receiver(Config::default(), tmp.path().to_path_buf(), Some(rx));
+
+        app.poll_update_check_result();
+
+        assert!(app.update_available.is_none());
+        assert!(app.update_check_rx.is_some());
+    }
+
+    #[test]
+    fn poll_update_check_result_ignores_non_newer_version() {
+        let tmp = TempDir::new().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let mut app =
+            App::new_with_update_receiver(Config::default(), tmp.path().to_path_buf(), Some(rx));
+
+        tx.send(update_checker::UpdateCheckResult {
+            latest_version: "0.1.0".to_string(),
+            is_newer: false,
+        })
+        .unwrap();
+
+        app.poll_update_check_result();
+
+        assert!(app.update_available.is_none());
+        assert!(app.update_check_rx.is_none());
     }
 
     #[test]
