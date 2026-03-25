@@ -1,11 +1,11 @@
 [workspace]
 git_release_enable = false
 release_always = false
+git_only = true
 
 [[package]]
 name = "deepwrite"
 publish = false
-git_only = true
 semver_check = false
 
 [[package]]
