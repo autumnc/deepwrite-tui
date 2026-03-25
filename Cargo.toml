@@ -11,6 +11,9 @@ keywords = ["markdown", "tui", "editor", "writing", "focus"]
 categories = ["command-line-utilities", "text-editors"]
 publish = false
 
+[package.metadata.dist]
+dist = true
+
 [workspace]
 members = ["crates/edtui"]
 resolver = "2"
