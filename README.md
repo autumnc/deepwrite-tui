@@ -4,6 +4,8 @@
 
 結合 **Yazi 風格的檔案瀏覽** 和 **iA Writer 風格的專注寫作**，給 vibe coders 和開發者打造。
 
+<video src="https://github.com/tomdhyang/deepwrite-tui/raw/main/assets/demo.mp4" width="100%" autoplay loop muted playsinline></video>
+
 ## 功能
 
 - **雙模式介面** — 左側瀏覽檔案，右側編輯
