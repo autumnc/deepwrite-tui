@@ -6,6 +6,7 @@ release_always = false
 name = "deepwrite"
 publish = false
 git_only = true
+semver_check = false
 
 [[package]]
 name = "edtui"
