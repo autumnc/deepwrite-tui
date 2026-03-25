@@ -30,8 +30,10 @@ struct Cli {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let supports_keyboard_enhancement =
-        matches!(crossterm::terminal::supports_keyboard_enhancement(), Ok(true));
+    let supports_keyboard_enhancement = matches!(
+        crossterm::terminal::supports_keyboard_enhancement(),
+        Ok(true)
+    );
 
     // Determine start directory and optional start file.
     let (start_dir, start_file) = match cli.path {

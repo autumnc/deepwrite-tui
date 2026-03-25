@@ -17,7 +17,7 @@ const HELP_TEXT: &str = "\
  a           Create file/dir     Ctrl+B       Bold
  r           Rename              Ctrl+I / T   Italic
  d           Delete              Ctrl+U       Strikethrough
- y           Copy path           Ctrl+K       Insert link
+ cc          Copy path           Ctrl+K       Insert link
  /           Search/filter       Ctrl+1..6    Heading level
  .           Toggle hidden       F1..F6       Heading fallback
  Ctrl+E      Toggle browser      Ctrl+Y       Redo

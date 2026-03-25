@@ -80,22 +80,23 @@ pub fn find_sentence_at_cursor(text: &str, cursor_row: usize, cursor_col: usize)
         }
     };
 
-    // Step 2: Extract the paragraph text
+    // Step 2: Extract the paragraph text so manually wrapped prose still
+    // counts as one sentence span.
     let lines: Vec<&str> = text.split('\n').collect();
     let para_text: String = lines[para.start_row..=para.end_row].join("\n");
 
-    // Step 3: Calculate cursor position relative to paragraph start
+    // Step 3: Calculate cursor position relative to paragraph start.
     let cursor_row_in_para = cursor_row - para.start_row;
     let byte_offset_in_para = cursor_to_byte_offset(&para_text, cursor_row_in_para, cursor_col);
 
-    // Step 4: Find sentence within the paragraph text
+    // Step 4: Find sentence within the paragraph text.
     let sentence = find_sentence_at(&para_text, byte_offset_in_para);
 
-    // Step 5: Convert byte range back to rows (relative to paragraph)
+    // Step 5: Convert byte range back to rows (relative to paragraph).
     let (sent_start_row_rel, sent_end_row_rel) =
         byte_range_to_rows(&para_text, sentence.start, sentence.end);
 
-    // Step 6: Convert back to absolute row indices
+    // Step 6: Convert back to absolute row indices.
     FocusRange {
         start_row: para.start_row + sent_start_row_rel,
         end_row: para.start_row + sent_end_row_rel,
@@ -251,5 +252,19 @@ mod tests {
         let focus = find_sentence_at_cursor(source, 2, 2);
         assert_eq!(focus.start_row, 2);
         assert_eq!(focus.end_row, 2);
+    }
+
+    #[test]
+    fn find_sentence_at_cursor_keeps_multiline_sentence_together() {
+        let source =
+            "This is one sentence split\nacross two lines without a blank break.\n\nNext paragraph.\n";
+
+        let focus = find_sentence_at_cursor(source, 0, 5);
+        assert_eq!(focus.start_row, 0);
+        assert_eq!(focus.end_row, 1);
+
+        let focus = find_sentence_at_cursor(source, 1, 5);
+        assert_eq!(focus.start_row, 0);
+        assert_eq!(focus.end_row, 1);
     }
 }

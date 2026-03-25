@@ -35,22 +35,51 @@ fn normalize_zhuyin(c: char) -> char {
     // Standard Zhuyin (大千/Dachen) keyboard layout mapping
     match c {
         // Row 1 (number row): 1 2 _ _ 5 _ _ 8 9 0 - =
-        'ㄅ' => '1', 'ㄉ' => '2', 'ㄓ' => '5',
-        'ㄚ' => '8', 'ㄞ' => '9', 'ㄢ' => '0', 'ㄦ' => '-',
+        'ㄅ' => '1',
+        'ㄉ' => '2',
+        'ㄓ' => '5',
+        'ㄚ' => '8',
+        'ㄞ' => '9',
+        'ㄢ' => '0',
+        'ㄦ' => '-',
         // Row 2 (qwerty): q w e r t y u i o p
-        'ㄆ' => 'q', 'ㄊ' => 'w', 'ㄍ' => 'e', 'ㄐ' => 'r',
-        'ㄔ' => 't', 'ㄗ' => 'y', 'ㄧ' => 'u', 'ㄛ' => 'i',
-        'ㄟ' => 'o', 'ㄣ' => 'p',
+        'ㄆ' => 'q',
+        'ㄊ' => 'w',
+        'ㄍ' => 'e',
+        'ㄐ' => 'r',
+        'ㄔ' => 't',
+        'ㄗ' => 'y',
+        'ㄧ' => 'u',
+        'ㄛ' => 'i',
+        'ㄟ' => 'o',
+        'ㄣ' => 'p',
         // Row 3 (asdf): a s d f g h j k l ;
-        'ㄇ' => 'a', 'ㄋ' => 's', 'ㄎ' => 'd', 'ㄑ' => 'f',
-        'ㄕ' => 'g', 'ㄘ' => 'h', 'ㄨ' => 'j', 'ㄜ' => 'k',
-        'ㄠ' => 'l', 'ㄤ' => ';',
+        'ㄇ' => 'a',
+        'ㄋ' => 's',
+        'ㄎ' => 'd',
+        'ㄑ' => 'f',
+        'ㄕ' => 'g',
+        'ㄘ' => 'h',
+        'ㄨ' => 'j',
+        'ㄜ' => 'k',
+        'ㄠ' => 'l',
+        'ㄤ' => ';',
         // Row 4 (zxcv): z x c v b n m , . /
-        'ㄈ' => 'z', 'ㄌ' => 'x', 'ㄏ' => 'c', 'ㄒ' => 'v',
-        'ㄖ' => 'b', 'ㄙ' => 'n', 'ㄩ' => 'm', 'ㄝ' => ',',
-        'ㄡ' => '.', 'ㄥ' => '/',
+        'ㄈ' => 'z',
+        'ㄌ' => 'x',
+        'ㄏ' => 'c',
+        'ㄒ' => 'v',
+        'ㄖ' => 'b',
+        'ㄙ' => 'n',
+        'ㄩ' => 'm',
+        'ㄝ' => ',',
+        'ㄡ' => '.',
+        'ㄥ' => '/',
         // Full-width punctuation
-        '，' => ',', '。' => '.', '／' => '/', '；' => ';',
+        '，' => ',',
+        '。' => '.',
+        '／' => '/',
+        '；' => ';',
         other => other,
     }
 }
@@ -113,7 +142,11 @@ impl PromptInput {
     }
 
     fn insert(&mut self, c: char) {
-        let byte_idx = self.text.char_indices().nth(self.cursor).map_or(self.text.len(), |(i, _)| i);
+        let byte_idx = self
+            .text
+            .char_indices()
+            .nth(self.cursor)
+            .map_or(self.text.len(), |(i, _)| i);
         self.text.insert(byte_idx, c);
         self.cursor += 1;
     }
@@ -121,7 +154,11 @@ impl PromptInput {
     fn backspace(&mut self) {
         if self.cursor > 0 {
             self.cursor -= 1;
-            let byte_idx = self.text.char_indices().nth(self.cursor).map_or(self.text.len(), |(i, _)| i);
+            let byte_idx = self
+                .text
+                .char_indices()
+                .nth(self.cursor)
+                .map_or(self.text.len(), |(i, _)| i);
             self.text.remove(byte_idx);
         }
     }
@@ -129,7 +166,11 @@ impl PromptInput {
     fn delete(&mut self) {
         let len = self.text.chars().count();
         if self.cursor < len {
-            let byte_idx = self.text.char_indices().nth(self.cursor).map_or(self.text.len(), |(i, _)| i);
+            let byte_idx = self
+                .text
+                .char_indices()
+                .nth(self.cursor)
+                .map_or(self.text.len(), |(i, _)| i);
             self.text.remove(byte_idx);
         }
     }
@@ -279,9 +320,11 @@ impl App {
 
             // File watcher check
             let mut changed_paths = Vec::new();
-            if let Some(ref watcher) = self.file_watcher {
-                while let Ok(path) = watcher.rx.try_recv() {
-                    changed_paths.push(path);
+            if let Some(ref mut watcher) = self.file_watcher {
+                match watcher.poll_changed() {
+                    Ok(Some(path)) => changed_paths.push(path),
+                    Ok(None) => {}
+                    Err(err) => self.set_status_message(format!("File watch failed: {err}")),
                 }
             }
             for path in changed_paths {
@@ -740,6 +783,12 @@ impl App {
 
     /// Handle key events in Browse mode.
     fn handle_browse_key(&mut self, key: KeyEvent) {
+        // Prompts capture text input verbatim; do not rewrite IME characters.
+        if self.prompt != BrowserPrompt::None {
+            self.handle_prompt_key(key);
+            return;
+        }
+
         let key = normalize_browse_key(key);
 
         // Help screen intercepts all keys when visible
@@ -767,12 +816,6 @@ impl App {
                 }
             }
             // Any other key after `c` just cancels the prefix
-            return;
-        }
-
-        // If a prompt is active, route keys to the prompt handler.
-        if self.prompt != BrowserPrompt::None {
-            self.handle_prompt_key(key);
             return;
         }
 
@@ -833,7 +876,7 @@ impl App {
             KeyCode::Char('c') => {
                 self.pending_c_prefix = true;
                 self.set_status_message("c-");
-                return; // wait for next key
+                // wait for the next key
             }
             KeyCode::Char('?') => {
                 self.show_help = true;
@@ -875,26 +918,22 @@ impl App {
                 }
                 self.update_search_matches();
             }
-            KeyCode::Left => {
-                match &mut self.prompt {
-                    BrowserPrompt::Create(pi)
-                    | BrowserPrompt::Rename(pi)
-                    | BrowserPrompt::Search(pi) => {
-                        pi.move_left();
-                    }
-                    _ => {}
+            KeyCode::Left => match &mut self.prompt {
+                BrowserPrompt::Create(pi)
+                | BrowserPrompt::Rename(pi)
+                | BrowserPrompt::Search(pi) => {
+                    pi.move_left();
                 }
-            }
-            KeyCode::Right => {
-                match &mut self.prompt {
-                    BrowserPrompt::Create(pi)
-                    | BrowserPrompt::Rename(pi)
-                    | BrowserPrompt::Search(pi) => {
-                        pi.move_right();
-                    }
-                    _ => {}
+                _ => {}
+            },
+            KeyCode::Right => match &mut self.prompt {
+                BrowserPrompt::Create(pi)
+                | BrowserPrompt::Rename(pi)
+                | BrowserPrompt::Search(pi) => {
+                    pi.move_right();
                 }
-            }
+                _ => {}
+            },
             KeyCode::Char(c) => {
                 match &mut self.prompt {
                     BrowserPrompt::Create(pi)
@@ -1722,6 +1761,21 @@ mod tests {
         app.handle_edit_key(italic, Event::Key(italic));
 
         assert_eq!(app.editor.get_content(), "Hello**");
+    }
+
+    #[test]
+    fn browse_prompt_keeps_zhuyin_input_verbatim() {
+        let tmp = TempDir::new().unwrap();
+        let mut app = test_app(&tmp);
+        app.prompt = BrowserPrompt::Create(PromptInput::empty());
+
+        let key = KeyEvent::new(KeyCode::Char('ㄅ'), KeyModifiers::NONE);
+        app.handle_browse_key(key);
+
+        assert_eq!(
+            app.prompt,
+            BrowserPrompt::Create(PromptInput::new("ㄅ".to_string()))
+        );
     }
 
     #[test]

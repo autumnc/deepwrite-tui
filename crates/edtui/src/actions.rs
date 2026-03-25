@@ -23,10 +23,10 @@ pub use self::delete::{
 };
 pub use self::insert::{AppendNewline, InsertChar, InsertNewline, LineBreak};
 pub use self::motion::{
-    MoveBackward, MoveDown, MoveDownWrapped, MoveForward, MoveHalfPageDown, MoveHalfPageUp, MoveUpWrapped,
+    MoveBackward, MoveDown, MoveDownWrapped, MoveForward, MoveHalfPageDown, MoveHalfPageUp,
     MovePageDown, MovePageUp, MoveToEndOfLine, MoveToFirst, MoveToFirstRow, MoveToLastRow,
-    MoveToMatchinBracket, MoveToStartOfLine, MoveUp, MoveWordBackward, MoveWordForward,
-    MoveWordForwardToEndOfWord,
+    MoveToMatchinBracket, MoveToStartOfLine, MoveUp, MoveUpWrapped, MoveWordBackward,
+    MoveWordForward, MoveWordForwardToEndOfWord,
 };
 use self::search::StartSearch;
 pub use self::search::{
