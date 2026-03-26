@@ -4,7 +4,7 @@
 
 結合 **Yazi 風格的檔案瀏覽** 和 **iA Writer 風格的專注寫作**，給 vibe coders 和開發者打造。
 
-<video src="https://github.com/user-attachments/assets/95c29312-d611-41fc-81a4-f2e1bd4c88bd" width="100%" autoplay loop muted playsinline></video>
+<video src="https://github.com/user-attachments/assets/869fe3d4-203d-4023-a4a5-ebe1fed5b9f5" width="100%" autoplay loop muted playsinline></video>
 
 ## 功能
 
