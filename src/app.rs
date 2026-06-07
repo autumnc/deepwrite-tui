@@ -1190,14 +1190,34 @@ impl App {
             return;
         }
 
-        // Ctrl+U: toggle strikethrough
+        // Ctrl+H: toggle highlight
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('h') {
+            self.apply_inline_format("==");
+            return;
+        }
+
+        // Ctrl+U: toggle underline
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('u') {
+            self.apply_inline_format_pair("<u>", "</u>");
+            return;
+        }
+
+        // Ctrl+D: toggle strikethrough
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('d') {
             self.apply_inline_format("~~");
             return;
         }
 
-        // Esc: exit edit mode in one press (also turns off Focus Mode)
+        // Esc: exit Visual mode first, then exit edit mode on second press
         if key.code == KeyCode::Esc {
+            if self.editor.state.mode == edtui::EditorMode::Visual {
+                use edtui::actions::{Execute, SwitchMode};
+                self.editor.state.selection = None;
+                SwitchMode(edtui::EditorMode::Insert).execute(&mut self.editor.state);
+                self.editor.update_highlights(&self.theme, self.focus_mode);
+                return;
+            }
+
             // Turn off focus mode if active
             if self.focus_mode != FocusMode::Off {
                 self.set_focus_mode(FocusMode::Off);
@@ -1211,7 +1231,7 @@ impl App {
                 }
             }
 
-            // Always return to Browse mode
+            // Return to Browse mode
             self.mode = AppMode::Browse;
             self.show_browser = self.browser_visibility_before_focus;
             return;
@@ -1339,6 +1359,41 @@ impl App {
             // Move cursor back by marker length so it sits between the markers.
             let marker_len = marker.len();
             self.editor.state.cursor.col = self.editor.state.cursor.col.saturating_sub(marker_len);
+        }
+
+        self.editor.state.mode = edtui::EditorMode::Insert;
+        self.editor.update_highlights(&self.theme, self.focus_mode);
+        self.auto_save.mark_edited();
+    }
+
+    fn apply_inline_format_pair(&mut self, open: &str, close: &str) {
+        self.editor.state.checkpoint();
+        if let Some(ref selection) = self.editor.state.selection.clone() {
+            let selected_lines = selection.copy_from(&self.editor.state.lines);
+            let selected_text = selected_lines.to_string();
+            let new_text = formatting::toggle_marker_pair(&selected_text, open, close);
+
+            let start = selection.start();
+            let _ = selection.extract_from(&mut self.editor.state.lines);
+            self.editor.state.cursor = start;
+            self.editor.state.selection = None;
+
+            for ch in new_text.chars() {
+                use edtui::actions::Execute;
+                use edtui::actions::InsertChar;
+                InsertChar(ch).execute(&mut self.editor.state);
+            }
+        } else {
+            use edtui::actions::Execute;
+            use edtui::actions::InsertChar;
+            for ch in open.chars() {
+                InsertChar(ch).execute(&mut self.editor.state);
+            }
+            for ch in close.chars() {
+                InsertChar(ch).execute(&mut self.editor.state);
+            }
+            let close_len = close.chars().count();
+            self.editor.state.cursor.col = self.editor.state.cursor.col.saturating_sub(close_len);
         }
 
         self.editor.state.mode = edtui::EditorMode::Insert;

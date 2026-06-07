@@ -151,11 +151,11 @@ impl Config {
 # auto_save_delay_ms = 500
 
 [focus]
-# mode = "off"           # off | sentence | paragraph | typewriter
+# mode = "off"           # off | sentence | paragraph | typewriter | line
 # opacity = 30           # 10-60, dimming intensity
 
 [theme]
-# mode = "system"        # system | light | dark
+# mode = "system"        # system | light | dark | high_contrast
 
 [browser]
 # show_hidden = false

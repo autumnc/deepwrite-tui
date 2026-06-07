@@ -9,6 +9,7 @@ pub enum FocusMode {
     Sentence,
     Paragraph,
     Typewriter,
+    Line,
 }
 
 impl FocusMode {
@@ -18,28 +19,30 @@ impl FocusMode {
             "sentence" => Self::Sentence,
             "paragraph" => Self::Paragraph,
             "typewriter" => Self::Typewriter,
+            "line" => Self::Line,
             _ => Self::Off,
         }
     }
 
-    /// Cycle to the next focus mode: Off -> Sentence -> Paragraph -> Typewriter -> Off.
+    /// Cycle to the next focus mode: Off -> Sentence -> Paragraph -> Typewriter -> Line -> Off.
     pub fn cycle(self) -> Self {
         match self {
             Self::Off => Self::Sentence,
             Self::Sentence => Self::Paragraph,
             Self::Paragraph => Self::Typewriter,
-            Self::Typewriter => Self::Off,
+            Self::Typewriter => Self::Line,
+            Self::Line => Self::Off,
         }
     }
 
     /// Whether this mode dims text outside the active range.
     pub fn has_dimming(self) -> bool {
-        matches!(self, Self::Sentence | Self::Paragraph)
+        matches!(self, Self::Sentence | Self::Paragraph | Self::Line)
     }
 
     /// Whether this mode uses typewriter scrolling (cursor always centered).
     pub fn has_typewriter(self) -> bool {
-        matches!(self, Self::Typewriter)
+        matches!(self, Self::Typewriter | Self::Line)
     }
 
     /// A human-readable label for the status bar. Empty string for Off.
@@ -49,6 +52,7 @@ impl FocusMode {
             Self::Sentence => "Focus: Sentence",
             Self::Paragraph => "Focus: Paragraph",
             Self::Typewriter => "Focus: Typewriter",
+            Self::Line => "Focus: Line",
         }
     }
 }
@@ -279,7 +283,8 @@ mod tests {
         assert_eq!(FocusMode::Off.cycle(), FocusMode::Sentence);
         assert_eq!(FocusMode::Sentence.cycle(), FocusMode::Paragraph);
         assert_eq!(FocusMode::Paragraph.cycle(), FocusMode::Typewriter);
-        assert_eq!(FocusMode::Typewriter.cycle(), FocusMode::Off);
+        assert_eq!(FocusMode::Typewriter.cycle(), FocusMode::Line);
+        assert_eq!(FocusMode::Line.cycle(), FocusMode::Off);
     }
 
     #[test]
@@ -288,6 +293,7 @@ mod tests {
         assert!(FocusMode::Sentence.has_dimming());
         assert!(FocusMode::Paragraph.has_dimming());
         assert!(!FocusMode::Typewriter.has_dimming());
+        assert!(FocusMode::Line.has_dimming());
     }
 
     #[test]
@@ -296,6 +302,7 @@ mod tests {
         assert!(!FocusMode::Sentence.has_typewriter());
         assert!(!FocusMode::Paragraph.has_typewriter());
         assert!(FocusMode::Typewriter.has_typewriter());
+        assert!(FocusMode::Line.has_typewriter());
     }
 
     #[test]
@@ -304,6 +311,7 @@ mod tests {
         assert_eq!(FocusMode::Sentence.label(), "Focus: Sentence");
         assert_eq!(FocusMode::Paragraph.label(), "Focus: Paragraph");
         assert_eq!(FocusMode::Typewriter.label(), "Focus: Typewriter");
+        assert_eq!(FocusMode::Line.label(), "Focus: Line");
     }
 
     #[test]
@@ -311,6 +319,7 @@ mod tests {
         assert_eq!(FocusMode::from_config("sentence"), FocusMode::Sentence);
         assert_eq!(FocusMode::from_config("paragraph"), FocusMode::Paragraph);
         assert_eq!(FocusMode::from_config("typewriter"), FocusMode::Typewriter);
+        assert_eq!(FocusMode::from_config("line"), FocusMode::Line);
         assert_eq!(FocusMode::from_config("unknown"), FocusMode::Off);
     }
 

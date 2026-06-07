@@ -34,13 +34,11 @@ pub(crate) fn insert_str(lines: &mut Lines, index: &mut Index2, text: &str) {
 
 /// Appends a string into the lines data next to a given `index`.
 pub(crate) fn append_str(lines: &mut Lines, index: &mut Index2, text: &str) {
-    if !lines.is_empty() && lines.len_col(index.row).unwrap_or_default() > 0 {
-        index.col += 1;
+    for (i, ch) in text.chars().enumerate() {
+        let is_last = i == text.len().saturating_sub(1);
+        insert_char(lines, index, ch, is_last);
     }
-    for ch in text.chars() {
-        insert_char(lines, index, ch, false);
-    }
-    index.col = index.col.saturating_sub(1);
+    index.col = index.col.saturating_add(1);
 }
 
 /// Inserts a line break at a given index. Forces a splitting of lines if
@@ -332,13 +330,13 @@ mod tests {
         let mut index = Index2::new(0, 5);
 
         append_str(&mut lines, &mut index, ",\n");
-        assert_eq!(index, Index2::new(1, 0));
-        assert_eq!(lines, Lines::from("Hello ,\nWorld!\n\n123."));
+        assert_eq!(index, Index2::new(1, 1));
+        assert_eq!(lines, Lines::from("Hello, World!\n\n123."));
 
         let mut lines = test_lines();
         let mut index = Index2::new(1, 0);
         append_str(&mut lines, &mut index, "abc");
-        assert_eq!(index, Index2::new(1, 2));
+        assert_eq!(index, Index2::new(1, 3));
         assert_eq!(lines, Lines::from("Hello World!\nabc\n123."));
     }
 

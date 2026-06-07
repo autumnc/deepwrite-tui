@@ -24,6 +24,8 @@ pub struct MarkdownHighlighter {
     re_image: Regex,
     re_link: Regex,
     re_strikethrough: Regex,
+    re_underline: Regex,
+    re_highlight: Regex,
     // Line-level patterns
     re_heading: Regex,
     re_block_quote: Regex,
@@ -50,6 +52,8 @@ impl MarkdownHighlighter {
             re_image: Regex::new(r"!\[([^\]]*)\]\(([^)]+)\)").unwrap(),
             re_link: Regex::new(r"\[([^\]]*)\]\(([^)]+)\)").unwrap(),
             re_strikethrough: Regex::new(r"~~(.+?)~~").unwrap(),
+            re_underline: Regex::new(r"<u>(.+?)</u>").unwrap(),
+            re_highlight: Regex::new(r"==(.+?)==").unwrap(),
             re_heading: Regex::new(r"^(#{1,6})\s").unwrap(),
             re_block_quote: Regex::new(r"^>\s?").unwrap(),
             re_unordered_list: Regex::new(r"^(\s*)([-*+])\s").unwrap(),
@@ -107,29 +111,44 @@ impl MarkdownHighlighter {
                 continue;
             }
 
-            // Heading (full line)
-            if self.re_heading.is_match(line) {
+            // Heading (full line) — level-specific color for hierarchy
+            if let Some(m) = self.re_heading.find(line) {
+                let level = m.as_str().trim().len().min(6);
                 ranges.push(HighlightRange {
                     start_row: row,
                     start_col: 0,
                     end_row: row,
                     end_col: line_char_len,
                     style: Style::default()
-                        .fg(theme.md_heading)
+                        .fg(theme.heading_color(level))
                         .add_modifier(Modifier::BOLD),
                 });
                 continue;
             }
 
-            // Block quote marker
+            // Block quote marker — muted marker, italic content with distinct color
             if let Some(m) = self.re_block_quote.find(line) {
+                let marker_end = m.end();
+                let marker_char_end = char_col(line, marker_end);
                 ranges.push(HighlightRange {
                     start_row: row,
                     start_col: 0,
                     end_row: row,
-                    end_col: m.end(),
+                    end_col: marker_char_end,
                     style: Style::default().fg(theme.md_muted),
                 });
+                // Style quote content with block_quote color + italic
+                if marker_char_end < line_char_len {
+                    ranges.push(HighlightRange {
+                        start_row: row,
+                        start_col: marker_char_end,
+                        end_row: row,
+                        end_col: line_char_len,
+                        style: Style::default()
+                            .fg(theme.md_block_quote)
+                            .add_modifier(Modifier::ITALIC),
+                    });
+                }
                 // Continue to process inline patterns in the rest of the line
             }
 
@@ -251,6 +270,32 @@ impl MarkdownHighlighter {
                 });
             }
 
+            // Highlight: ==text== — reversed colors for highlighter effect
+            for m in self.re_highlight.find_iter(line) {
+                ranges.push(HighlightRange {
+                    start_row: row,
+                    start_col: char_col(line, m.start()),
+                    end_row: row,
+                    end_col: char_col(line, m.end()),
+                    style: Style::default()
+                        .bg(theme.md_highlight_bg)
+                        .fg(theme.bg),
+                });
+            }
+
+            // Underline: <u>text</u>
+            for m in self.re_underline.find_iter(line) {
+                ranges.push(HighlightRange {
+                    start_row: row,
+                    start_col: char_col(line, m.start()),
+                    end_row: row,
+                    end_col: char_col(line, m.end()),
+                    style: Style::default()
+                        .fg(theme.md_underline)
+                        .add_modifier(Modifier::UNDERLINED),
+                });
+            }
+
             // Strikethrough: ~~text~~
             for m in self.re_strikethrough.find_iter(line) {
                 ranges.push(HighlightRange {
@@ -324,7 +369,7 @@ fn main() {}
         let has_heading = ranges.iter().any(|r| {
             r.style
                 == Style::default()
-                    .fg(theme.md_heading)
+                    .fg(theme.md_heading_1)
                     .add_modifier(Modifier::BOLD)
         });
         assert!(has_heading, "Expected heading highlight");
@@ -403,6 +448,79 @@ fn main() {}
                     .add_modifier(Modifier::CROSSED_OUT)
         });
         assert!(has_strikethrough, "Expected strikethrough highlight");
+    }
+
+    #[test]
+    fn underline_detected() {
+        let source = "Some <u>underlined</u> text\n";
+        let theme = Theme::dark();
+        let mut hl = MarkdownHighlighter::new();
+        let ranges = hl.parse(source, &theme);
+
+        let has_underline = ranges.iter().any(|r| {
+            r.style
+                == Style::default()
+                    .fg(theme.md_underline)
+                    .add_modifier(Modifier::UNDERLINED)
+        });
+        assert!(has_underline, "Expected underline highlight");
+    }
+
+    #[test]
+    fn heading_levels_get_different_colors() {
+        let source = "# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6\n";
+        let theme = Theme::dark();
+        let mut hl = MarkdownHighlighter::new();
+        let ranges = hl.parse(source, &theme);
+
+        let h1_style = Style::default()
+            .fg(theme.md_heading_1)
+            .add_modifier(Modifier::BOLD);
+        let h6_style = Style::default()
+            .fg(theme.md_heading_6)
+            .add_modifier(Modifier::BOLD);
+
+        assert!(
+            ranges.iter().any(|r| r.start_row == 0 && r.style == h1_style),
+            "H1 should use heading_1 color"
+        );
+        assert!(
+            ranges.iter().any(|r| r.start_row == 5 && r.style == h6_style),
+            "H6 should use heading_6 color"
+        );
+    }
+
+    #[test]
+    fn highlight_detected() {
+        let source = "Some ==highlighted== text\n";
+        let theme = Theme::dark();
+        let mut hl = MarkdownHighlighter::new();
+        let ranges = hl.parse(source, &theme);
+
+        let has_highlight = ranges.iter().any(|r| {
+            r.style
+                == Style::default()
+                    .bg(theme.md_highlight_bg)
+                    .fg(theme.bg)
+        });
+        assert!(has_highlight, "Expected highlight with reversed colors");
+    }
+
+    #[test]
+    fn block_quote_content_has_italic_and_distinct_color() {
+        let source = "> quoted text here\n";
+        let theme = Theme::dark();
+        let mut hl = MarkdownHighlighter::new();
+        let ranges = hl.parse(source, &theme);
+
+        let quote_content_style = Style::default()
+            .fg(theme.md_block_quote)
+            .add_modifier(Modifier::ITALIC);
+        let has_quote_content = ranges.iter().any(|r| r.style == quote_content_style);
+        assert!(
+            has_quote_content,
+            "Block quote content should be italic with block_quote color"
+        );
     }
 
     #[test]

@@ -91,6 +91,12 @@ impl EditorWrapper {
                 self.state.cursor.row,
                 self.state.cursor.col,
             ))
+        } else if focus_mode == FocusMode::Line {
+            let row = self.state.cursor.row;
+            Some(FocusRange {
+                start_row: row,
+                end_row: row,
+            })
         } else {
             None
         };

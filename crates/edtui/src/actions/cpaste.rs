@@ -116,8 +116,8 @@ mod tests {
         CopySelection.execute(&mut state);
         Paste.execute(&mut state);
 
-        assert_eq!(state.cursor, Index2::new(0, 3));
-        assert_eq!(state.lines, Lines::from("HHelello World!\n\n123."));
+        assert_eq!(state.cursor, Index2::new(0, 2));
+        assert_eq!(state.lines, Lines::from("HeHello World!\n\n123."));
     }
 
     #[test]
@@ -128,7 +128,7 @@ mod tests {
 
         Paste.execute(&mut state);
 
-        assert_eq!(state.cursor, Index2::new(0, 3));
+        assert_eq!(state.cursor, Index2::new(0, 4));
         assert_eq!(state.lines, Lines::from("text"));
     }
 

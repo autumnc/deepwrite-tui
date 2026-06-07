@@ -87,6 +87,20 @@ pub fn toggle_marker(text: &str, marker: &str) -> String {
     }
 }
 
+/// Toggle asymmetric markers on `text`, e.g. `<u>` / `</u>`.
+///
+/// If the text is already wrapped, unwrap it; otherwise wrap it.
+pub fn toggle_marker_pair(text: &str, open: &str, close: &str) -> String {
+    if text.len() >= open.len() + close.len()
+        && text.starts_with(open)
+        && text.ends_with(close)
+    {
+        text[open.len()..text.len() - close.len()].to_string()
+    } else {
+        format!("{open}{text}{close}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
