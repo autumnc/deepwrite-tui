@@ -1165,7 +1165,9 @@ impl App {
             }
         };
         if let Some(level) = heading_level {
-            self.apply_heading_toggle(level);
+            // F-keys move cursor to end of line; Ctrl+Number keeps position
+            let move_to_end = matches!(key.code, KeyCode::F(1..=6));
+            self.apply_heading_toggle(level, move_to_end);
             return;
         }
 
@@ -1292,7 +1294,7 @@ impl App {
     ///
     /// Reads the current line from the editor, applies `toggle_heading`,
     /// and replaces the line in-place.
-    fn apply_heading_toggle(&mut self, level: usize) {
+    fn apply_heading_toggle(&mut self, level: usize, move_to_end: bool) {
         use edtui::RowIndex;
 
         self.editor.state.checkpoint();
@@ -1314,8 +1316,9 @@ impl App {
             row_mut.extend(new_chars.iter());
         }
 
-        // Clamp cursor column to the new line length.
-        if self.editor.state.cursor.col >= new_len {
+        if move_to_end {
+            self.editor.state.cursor.col = new_len;
+        } else if self.editor.state.cursor.col >= new_len {
             self.editor.state.cursor.col = new_len.saturating_sub(1);
         }
 
