@@ -1,100 +1,27 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## 0.4.0 (2026-06-07)
 
-## [0.3.0] - 2026-03-25
+### Added
+- **High-contrast theme** — optimized for `#101010` background, configurable via `theme.mode = "high_contrast"`
+- **Heading hierarchy colors** — H1-H6 each use distinct colors (warm-to-cool gradient) for visual distinction
+- **`==highlight==` syntax** — highlight text with reversed background color (highlighter pen effect)
+- **`<u>underline</u>` syntax** — underline text support
+- **Line focus mode** — highlights only the current editing line, dims everything else, cursor stays vertically centered. Cycle via `Ctrl+F`
+- **Ctrl+H shortcut** — toggle highlight formatting
+- **Ctrl+D shortcut** — toggle strikethrough formatting
 
-### Bug Fixes
+### Changed
+- **Ctrl+U** now toggles underline (was strikethrough)
+- **Block quotes** now render with italic text and distinct color from body text
+- **Paste** now inserts at cursor position instead of before it
+- **Esc in Visual mode** first exits selection mode (back to Insert), second Esc returns to Browse
+- Focus mode cycle extended: Off → Sentence → Paragraph → Typewriter → Line → Off
 
-- Clippy warnings in list scope detection and mouse handler formatting
-- Address code review for list focus detection
-- Address list focus code review findings
+### Fixed
+- Shift+Arrow text selection compatibility with Linux console / fbterm
+- Ctrl+number keys not working in fbterm (documented workaround: use F1-F6)
 
-### Documentation
+## 0.3.0 (2026-05-01)
 
-- Rewrite README in Traditional Chinese for target audience
-- Add product positioning to README
-- Add list item focus mode implementation plan
-- Rewrite list item focus plan per code review
-
-### Features
-
-- Enable mouse support in Edit mode (click, drag, scroll)
-- Scope sentence focus to markdown list entry blocks
-
-### Testing
-
-- Cover sentence focus behavior for markdown lists
-## [0.2.0] - 2026-03-25
-
-### Bug Fixes
-
-- Address code review findings in CI and release workflows
-- Add version to edtui path dependency for cargo package compatibility
-- Mark deepwrite as publish=false to skip cargo package in release-plz
-- Align release-plz config with Cargo.toml publish=false for deepwrite
-- Disable semver check in release-plz to avoid cargo package on forked edtui
-- Move git_only to workspace level to trigger release-plz --workspace cargo package fix
-- Address code review findings for release workflow
-- Reset CHANGELOG to Unreleased and fix plan version reference
-- Add dist=true so cargo-dist includes deepwrite despite publish=false
-
-### Documentation
-
-- Add update notification implementation plan
-- Update notification implementation plan (revised)
-
-### Features
-
-- Add update notification on startup
-
-### Miscellaneous
-
-- Replace release-plz with cargo-release
-- Replace release-plz with cargo-release and update docs
-## [0.1.0] - 2026-03-25
-
-### Bug Fixes
-
-- Correct off-by-one in scrolloff and mouse click row calculation
-- Handle unsupported key codes instead of panicking
-- Correct wrapped line movement behavior
-- Resolve clippy warning and formatting issues for CI
-
-### CI
-
-- Add CI workflow (fmt, clippy, test on 3 platforms)
-- Initialize cargo-dist for cross-platform binary releases
-- Add release-plz for automated version bumps and changelog updates
-
-### Documentation
-
-- Update spec to reflect actual implementation
-- Add problem statement and pain points to spec
-- Add open-source release design spec
-- Add open-source release implementation plan
-- Add README with installation, usage, and configuration
-- Add contributing guidelines
-
-### Features
-
-- Deepwrite-tui — terminal Markdown writing tool with Focus Mode
-- Unify file/directory creation under single `a` key
-- Add h/l navigation keybindings (Yazi vim convention)
-- Add help screen overlay (? key in Browse mode)
-- Add scrolloff (5-line buffer) to browser list
-- Add mouse support (click to select, scroll to navigate)
-- Copy file path to clipboard with 'y' key (Browse mode)
-- Replace fixed panel_width with ratio-based layout (Yazi-style)
-- Add Zhuyin input method support for Ctrl shortcuts
-- Add MoveDownWrapped for visual line movement
-- Add MoveUpWrapped for visual line movement
-- Use visual line movement for Up/Down in Edit mode
-- Prompt input cursor navigation + auto-generate config template
-
-### Miscellaneous
-
-- Clean up tracked OS artifacts, stale edtui workflows, and improve .gitignore
-- Add MIT license
-- Add package metadata and mark edtui as non-publishable
-- Add git-cliff config and generate initial changelog
+Initial public release.
