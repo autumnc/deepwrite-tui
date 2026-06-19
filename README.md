@@ -1,3 +1,4 @@
+
 # Deepwrite
 
 在 AI 開發的時代，程式碼可以交給 AI 寫，但 spec、文件、技術決策還是得你自己掌握。Deepwrite 讓你在終端機裡專注地閱讀和編輯 Markdown 文件 — 開發的同時，隨時切過來審核、修改你的文件。
@@ -14,7 +15,7 @@
 - **Markdown 語法高亮** — 標題、粗體、斜體、程式碼區塊、連結
 - **格式化快捷鍵** — Ctrl+B 粗體、Ctrl+I 斜體、Ctrl+1/2/3 標題
 - **中日韓字數統計** — 精確的 CJK 字元計數
-- **自動儲存** — 2 秒延遲寫入，透過暫存檔 + 原子重新命名確保安全
+-	 **自動儲存** — 2 秒延遲寫入，透過暫存檔 + 原子重新命名確保安全
 - **外部變更偵測** — 自動偵測其他編輯器的檔案修改
 - **淺色/深色主題** — 自動偵測系統偏好
 - **可自訂** — `~/.config/deepwrite/config.toml`
@@ -26,6 +27,7 @@
 ```bash
 brew install tomdhyang/tap/deepwrite
 ```
+
 
 ### 預編譯 Binary
 
@@ -42,6 +44,7 @@ cargo install --git https://github.com/tomdhyang/deepwrite-tui.git
 需要 [Rust](https://rustup.rs/)（建議使用最新穩定版）。
 
 ## 使用方式
+aaa
 
 ```bash
 # 開啟目前目錄
@@ -84,7 +87,7 @@ deepwrite README.md
 | `Ctrl+Z` | 復原 |
 
 ## 設定
-
+====
 設定檔位於 `~/.config/deepwrite/config.toml`：
 
 ```toml

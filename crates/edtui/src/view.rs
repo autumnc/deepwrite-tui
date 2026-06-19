@@ -251,6 +251,7 @@ impl Widget for EditorView<'_, '_> {
         let tab_width = self.get_tab_width();
         let line_numbers = self.get_line_numbers();
         let lines = &self.state.lines;
+        let folded_ranges = &self.state.folded_ranges;
 
         // Retrieve the displayed cursor position. The column of the displayed
         // cursor is clamped to the maximum line length.
@@ -261,22 +262,34 @@ impl Widget for EditorView<'_, '_> {
         // Use content_main (not main) so mouse events are calculated relative to text area.
         self.state.view.set_screen_area(content_main);
 
+        // Convert cursor logical row to display row for viewport calculations
+        let cursor_display_row = self.state.logical_to_display_row(cursor.row);
+
         // Update the view offset. Requires the screen size and the position
         // of the cursor. Updates the view offset only if the cursor is out
         // side of the view port. The state is stored in the `ViewOffset`.
         let view_state = &mut self.state.view;
-        let (offset_x, offset_y) = if wrap_lines {
+        let (offset_x, offset_y_display) = if wrap_lines {
             (
                 0,
-                view_state.update_viewport_vertical_wrap(width, height, cursor.row, lines),
+                view_state.update_viewport_vertical_wrap(
+                    width,
+                    height,
+                    cursor_display_row,
+                    lines,
+                    folded_ranges,
+                ),
             )
         } else {
             let line = lines.get(RowIndex::new(cursor.row));
             (
                 view_state.update_viewport_horizontal(width, cursor.col, line),
-                view_state.update_viewport_vertical(height, cursor.row),
+                view_state.update_viewport_vertical(height, cursor_display_row),
             )
         };
+
+        // Convert display offset to logical row to start iteration
+        let mut row_index = self.state.display_to_logical_row(offset_y_display);
 
         // Predetermine highlighted sections.
         let mut search_selection: Option<Selection> = None;
@@ -293,11 +306,23 @@ impl Widget for EditorView<'_, '_> {
         let line_numbers_enabled = line_numbers != LineNumbers::None;
         let is_relative = line_numbers == LineNumbers::Relative;
 
-        let mut row_index = offset_y;
-        for line in lines.iter_row().skip(row_index) {
-            if content_area.height == 0 {
-                break;
+        let total_lines = lines.len();
+
+        while row_index < total_lines && content_area.height > 0 {
+            // Check if this row is inside a folded range
+            if let Some(&(_, end)) = folded_ranges
+                .iter()
+                .find(|&&(start, end)| row_index >= start && row_index <= end)
+            {
+                row_index = end + 1;
+                continue;
             }
+
+            // Get the line content for this row
+            let line = match lines.get(RowIndex::new(row_index)) {
+                Some(l) => l,
+                None => break,
+            };
 
             let col_skips = offset_x;
             num_rendered_rows += 1;
@@ -385,12 +410,37 @@ impl Widget for EditorView<'_, '_> {
             };
 
             row_index += 1;
+
+            // After rendering this row, check if the next row starts a folded range.
+            // If so, render a fold indicator and skip past the folded lines.
+            if let Some(&(_, end)) = folded_ranges.iter().find(|&&(start, _)| start == row_index) {
+                if content_area.height > 0 {
+                    num_rendered_rows += 1;
+                    let fold_style = self
+                        .theme
+                        .base
+                        .fg
+                        .map(|c| Style::default().fg(c))
+                        .unwrap_or_default();
+                    let fold_indicator = Span::styled("  ⋯", fold_style);
+                    let indicator_line = ratatui_core::text::Line::from(fold_indicator);
+                    buf.set_line(
+                        content_area.x,
+                        content_area.y,
+                        &indicator_line,
+                        content_area.width,
+                    );
+                    content_area = rect_indent_y(content_area, 1);
+                    // Skip past the folded range
+                    row_index = end + 1;
+                }
+            }
         }
 
         // Compute the final cursor position.
         let final_cursor_position = cursor_position.unwrap_or(Position::new(
             content_main.left(),
-            content_main.top() + self.state.cursor.row as u16,
+            content_main.top() + cursor_display_row as u16,
         ));
 
         // Store the cursor screen position for external access.

@@ -10,7 +10,7 @@ use ratatui_core::layout::{Position, Rect};
 /// It represents the top-left local editor coordinate.
 #[derive(Debug, Clone)]
 pub(crate) struct ViewState {
-    /// The offset of the viewport.
+    /// The offset of the viewport in display coordinates.
     pub(crate) viewport: Offset,
     /// The number of rows that are displayed on the viewport
     pub(crate) num_rows: usize,
@@ -51,7 +51,7 @@ impl Default for ViewState {
 pub(crate) struct Offset {
     /// The x-offset.
     pub(crate) x: usize,
-    /// The y-offset.
+    /// The y-offset in display coordinates.
     pub(crate) y: usize,
 }
 
@@ -132,38 +132,45 @@ impl ViewState {
         self.viewport.x
     }
 
-    /// Updates the view ports vertical offset.
-    pub(crate) fn update_viewport_vertical(&mut self, height: usize, cursor_row: usize) -> usize {
+    /// Updates the view ports vertical offset (display coordinates).
+    /// `cursor_display_row` is the cursor position in display row coordinates.
+    pub(crate) fn update_viewport_vertical(
+        &mut self,
+        height: usize,
+        cursor_display_row: usize,
+    ) -> usize {
         let max_cursor_pos = height.saturating_sub(1) + self.viewport.y;
 
         // scroll up
-        if cursor_row < self.viewport.y {
-            self.viewport.y = cursor_row;
+        if cursor_display_row < self.viewport.y {
+            self.viewport.y = cursor_display_row;
         }
 
         // scroll down
-        if cursor_row >= max_cursor_pos {
-            self.viewport.y += cursor_row.saturating_sub(max_cursor_pos);
+        if cursor_display_row >= max_cursor_pos {
+            self.viewport.y += cursor_display_row.saturating_sub(max_cursor_pos);
         }
 
         self.viewport.y
     }
 
-    /// Updates the view ports vertical offset.
+    /// Updates the view ports vertical offset with line wrapping (display coordinates).
+    /// `cursor_display_row` is the cursor position in display row coordinates.
     pub(crate) fn update_viewport_vertical_wrap(
         &mut self,
         width: usize,
         height: usize,
-        cursor_row: usize,
+        cursor_display_row: usize,
         lines: &Lines,
+        folded_ranges: &[(usize, usize)],
     ) -> usize {
         // scroll up
-        if cursor_row < self.viewport.y {
-            self.viewport.y = cursor_row;
+        if cursor_display_row < self.viewport.y {
+            self.viewport.y = cursor_display_row;
         }
 
         // scroll down
-        self.scroll_down(lines, width, height, cursor_row);
+        self.scroll_down(lines, width, height, cursor_display_row, folded_ranges);
 
         self.viewport.y
     }
@@ -174,47 +181,108 @@ impl ViewState {
         self.num_rows = num_rows;
     }
 
-    /// Scrolls the viewport down based on the cursor's row position.
+    /// Scrolls the viewport down based on the cursor's display row position.
     ///
     /// This function adjusts the viewport to ensure that the cursor remains visible
-    /// when moving down in a list of lines. It calculates the required scrolling
-    /// based on the line width and wraps the content to fit within the maximum width and height.
-    ///
-    /// # Behavior
-    ///
-    /// If the cursor is already visible within the current viewport, no action is taken.
-    /// Otherwise, the function calculates how many rows the content would need to wrap,
-    /// and adjusts the viewport accordingly.
+    /// when moving down. It accounts for line wrapping and folded ranges.
     fn scroll_down(
         &mut self,
         lines: &Lines,
         max_width: usize,
         max_height: usize,
-        cursor_row: usize,
+        cursor_display_row: usize,
+        folded_ranges: &[(usize, usize)],
     ) {
         // If the cursor is already within the viewport, or there are no rows to display, return early.
-        if cursor_row < self.viewport.y + self.num_rows || self.num_rows == 0 {
+        if cursor_display_row < self.viewport.y + self.num_rows || self.num_rows == 0 {
             return;
         }
 
+        // Walk backward from cursor_display_row to find the viewport position
+        // that fits the cursor within max_height display rows.
         let mut remaining_height = max_height;
+        let display_row = cursor_display_row;
 
-        let skip = lines.len().saturating_sub(cursor_row + 1);
-        for (i, line) in lines.iter_row().rev().skip(skip).enumerate() {
+        // Convert display row back to logical row for line content lookup
+        let cursor_logical = display_to_logical_unchecked(display_row, folded_ranges);
+        let skip = lines.len().saturating_sub(cursor_logical + 1);
+
+        let mut logical_iter = lines.iter_row().rev().skip(skip).enumerate();
+
+        // We need to walk backward through display rows, skipping folded ranges
+        while remaining_height > 0 {
+            // Find the next visible logical row going backward
+            let (i, line) = match logical_iter.next() {
+                Some(item) => item,
+                None => break,
+            };
+            let logical_row = cursor_logical.saturating_sub(i);
+
+            // Check if this logical row is inside a folded range
+            let is_folded = folded_ranges
+                .iter()
+                .any(|&(start, end)| logical_row >= start && logical_row <= end);
+            if is_folded {
+                continue;
+            }
+
             let line_width = chars_width(line, self.tab_width);
             let current_row_height = LineWrapper::determine_split(line_width, max_width).len();
 
-            // If we run out of height or exceed it, scroll the viewport.
             if remaining_height < current_row_height {
-                let first_visible_row = cursor_row.saturating_sub(i.saturating_sub(1));
-                self.viewport.y = first_visible_row;
+                // This row doesn't fit; set viewport to one display row after this
+                let display_row_for_this = logical_to_display_unchecked(logical_row, folded_ranges);
+                self.viewport.y = display_row_for_this.saturating_add(1);
                 break;
             }
 
-            // Subtract the number of wrapped rows from the remaining height.
             remaining_height = remaining_height.saturating_sub(current_row_height);
         }
     }
+}
+
+/// Map a logical row to a display row, skipping folded ranges.
+/// Used internally by viewport calculations.
+fn logical_to_display_unchecked(logical_row: usize, folded_ranges: &[(usize, usize)]) -> usize {
+    let mut display = logical_row;
+    for &(start, end) in folded_ranges {
+        if logical_row > end {
+            display -= end - start + 1;
+        } else if logical_row >= start {
+            display = start.saturating_sub(1);
+            for &(s, e) in folded_ranges {
+                if s < start {
+                    display -= e - s + 1;
+                }
+            }
+            return display;
+        } else {
+            break;
+        }
+    }
+    display
+}
+
+/// Map a display row to a logical row, accounting for folded ranges.
+/// Used internally by viewport calculations.
+fn display_to_logical_unchecked(display_row: usize, folded_ranges: &[(usize, usize)]) -> usize {
+    let mut logical = display_row;
+    let mut remaining = display_row;
+
+    for &(start, end) in folded_ranges {
+        let fold_size = end - start + 1;
+        // How many visible rows before this fold at this point?
+        // The fold starts at logical row `start`, but its display position
+        // depends on preceding folds.
+        let fold_display_start = logical_to_display_unchecked(start, folded_ranges);
+        if remaining < fold_display_start {
+            break;
+        }
+        // We've passed this fold in display space
+        logical += fold_size;
+        remaining = remaining.saturating_sub(fold_display_start);
+    }
+    logical
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ pub mod focus;
 pub mod formatting;
 pub mod keymap;
 pub mod markdown;
+pub mod outline;
 pub mod sentence;
 pub mod word_count;
 

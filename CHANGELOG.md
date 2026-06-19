@@ -3,6 +3,7 @@
 ## 0.4.0 (2026-06-07)
 
 ### Added
+
 - **High-contrast theme** — optimized for `#101010` background, configurable via `theme.mode = "high_contrast"`
 - **Heading hierarchy colors** — H1-H6 each use distinct colors (warm-to-cool gradient) for visual distinction
 - **`==highlight==` syntax** — highlight text with reversed background color (highlighter pen effect)

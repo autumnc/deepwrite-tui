@@ -14,14 +14,15 @@ const HELP_TEXT: &str = "\
  j / ↓       Move down           Ctrl+S       Save
  h / ←       Go to parent dir    Ctrl+E       Toggle browser
  l / → / ⏎   Enter dir / Open    Ctrl+F       Cycle focus mode
- a           Create file/dir     Ctrl+B       Bold
- r           Rename              Ctrl+I / T   Italic
- d           Delete              Ctrl+U       Strikethrough
- cc          Copy path           Ctrl+K       Insert link
- /           Search/filter       Ctrl+1..6    Heading level
- .           Toggle hidden       F1..F6       Heading fallback
- Ctrl+E      Toggle browser      Ctrl+Y       Redo
- q           Quit                Ctrl+A       Select all
+ a           Create file/dir     Ctrl+O       Outline
+ r           Rename              Ctrl+B       Bold
+ d           Delete              Ctrl+I / T   Italic
+ cc          Copy path           Ctrl+U       Strikethrough
+ /           Search/filter       Ctrl+K       Insert link
+ .           Toggle hidden       Ctrl+1..6    Heading level
+ Ctrl+E      Toggle browser      F1..F6       Heading fallback
+ q           Quit                Ctrl+Y       Redo
+                                 Ctrl+A       Select all
                                  Ctrl+Z       Undo
                                  Ctrl+C       Copy
                                  Ctrl+X       Cut

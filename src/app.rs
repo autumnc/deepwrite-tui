@@ -28,6 +28,8 @@ use deepwrite::services::file_watcher::FileWatcher;
 use deepwrite::services::update_checker;
 use deepwrite::theme::Theme;
 use deepwrite::ui::help::render_help;
+use deepwrite::editor::outline::{current_heading_index, extract_headings, OutlineState};
+use deepwrite::ui::outline::render_outline;
 
 /// Map Zhuyin (Bopomofo) characters back to their ASCII key equivalents.
 /// When a CJK input method is active on macOS, pressing Ctrl+F sends
@@ -248,6 +250,7 @@ pub struct App {
     pub update_available: Option<String>,
     /// True when `c` was pressed and we're waiting for the second key.
     pending_c_prefix: bool,
+    pub outline: OutlineState,
 }
 
 impl App {
@@ -304,6 +307,7 @@ impl App {
             update_check_rx,
             update_available: None,
             pending_c_prefix: false,
+            outline: OutlineState::new(),
         };
         app.preview_selected_file();
         app
@@ -386,7 +390,7 @@ impl App {
     /// Draw the full UI.
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
-        let layout = compute_layout(area, self.config.browser.ratio, self.show_browser);
+        let layout = compute_layout(area, self.config.browser.ratio, self.show_browser, self.outline.visible);
 
         // Fill background
         let bg_block = Block::default().style(self.theme.base_style());
@@ -438,6 +442,28 @@ impl App {
         self.editor_render_width = editor_area.width;
         self.editor
             .render(frame, editor_area, &self.theme, self.focus_mode);
+
+        // Hide editor cursor when outline has focus
+        if self.outline.focused {
+            frame.set_cursor_position(Position::new(0, 0));
+        }
+
+        // Outline panel
+        if self.outline.visible {
+            let content = self.editor.get_content();
+            self.outline.headings = extract_headings(&content);
+            if self.outline.selected >= self.outline.headings.len() {
+                self.outline.selected = self.outline.headings.len().saturating_sub(1);
+            }
+            let cursor_row = self.editor.state.cursor.row;
+            let current_idx = current_heading_index(&self.outline.headings, cursor_row);
+            if !self.outline.focused {
+                if let Some(idx) = current_idx {
+                    self.outline.selected = idx;
+                }
+            }
+            render_outline(frame, layout.outline, &self.outline, current_idx, &self.theme);
+        }
 
         // Status bar
         let content = self.editor.get_content();
@@ -505,12 +531,22 @@ impl App {
         if self.focus_mode == FocusMode::Off && focus_mode != FocusMode::Off {
             self.browser_visibility_before_focus = self.show_browser;
             self.show_browser = false;
+            self.outline.visible = false;
+            self.outline.focused = false;
         } else if self.focus_mode != FocusMode::Off && focus_mode == FocusMode::Off {
             self.show_browser = self.browser_visibility_before_focus;
         }
 
         self.focus_mode = focus_mode;
         self.editor.update_highlights(&self.theme, self.focus_mode);
+    }
+
+    fn jump_to_heading(&mut self) {
+        if let Some(heading) = self.outline.headings.get(self.outline.selected) {
+            self.editor.state.cursor.row = heading.row;
+            self.editor.state.cursor.col = 0;
+            self.editor.update_highlights(&self.theme, self.focus_mode);
+        }
     }
 
     fn handle_external_change(&mut self, path: &Path) {
@@ -1105,6 +1141,57 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('e') {
             self.toggle_browser_visibility();
             return;
+        }
+
+        // Ctrl+O toggles outline panel
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('o') {
+            if self.outline.visible && self.outline.focused {
+                // Close outline
+                self.outline.visible = false;
+                self.outline.focused = false;
+            } else if self.outline.visible && !self.outline.focused {
+                // Re-focus outline
+                self.outline.focused = true;
+            } else {
+                // Open outline with focus
+                let content = self.editor.get_content();
+                self.outline.headings = extract_headings(&content);
+                let cursor_row = self.editor.state.cursor.row;
+                if let Some(idx) = current_heading_index(&self.outline.headings, cursor_row) {
+                    self.outline.selected = idx;
+                }
+                self.outline.visible = true;
+                self.outline.focused = true;
+            }
+            return;
+        }
+
+        // Outline panel navigation (when outline has focus)
+        if self.outline.focused {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if self.outline.selected > 0 {
+                        self.outline.selected -= 1;
+                    }
+                    return;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if self.outline.selected + 1 < self.outline.headings.len() {
+                        self.outline.selected += 1;
+                    }
+                    return;
+                }
+                KeyCode::Enter => {
+                    self.jump_to_heading();
+                    self.outline.focused = false;
+                    return;
+                }
+                KeyCode::Esc => {
+                    self.outline.focused = false;
+                    return;
+                }
+                _ => return,
+            }
         }
 
         // Ctrl+S saves immediately

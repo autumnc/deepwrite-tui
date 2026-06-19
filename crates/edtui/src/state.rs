@@ -49,6 +49,10 @@ pub struct EditorState {
     /// Clipboard for yank and paste operations.
     pub(crate) clip: Clipboard,
 
+    /// Folded line ranges as (start_row, end_row) inclusive, sorted, non-overlapping.
+    /// Each range represents lines that are collapsed and not displayed.
+    pub folded_ranges: Vec<(usize, usize)>,
+
     /// Flag indicating a system editor was requested.
     #[cfg(feature = "system-editor")]
     pub(crate) system_edit_requested: bool,
@@ -84,6 +88,7 @@ impl EditorState {
             undo: Stack::new(),
             redo: Stack::new(),
             clip: Clipboard::default(),
+            folded_ranges: Vec::new(),
             #[cfg(feature = "system-editor")]
             system_edit_requested: false,
         }
@@ -216,6 +221,95 @@ impl EditorState {
     /// mutations but should still undo as one user action.
     pub fn checkpoint(&mut self) {
         self.capture();
+    }
+
+    /// Toggle a fold range. If the exact range exists, remove it; otherwise add it.
+    /// Ranges are kept sorted and non-overlapping.
+    pub fn toggle_fold(&mut self, start: usize, end: usize) {
+        if start > end {
+            return;
+        }
+        if let Some(idx) = self.folded_ranges.iter().position(|&(s, e)| s == start && e == end) {
+            self.folded_ranges.remove(idx);
+        } else {
+            self.folded_ranges.push((start, end));
+            self.folded_ranges.sort_by_key(|&(s, _)| s);
+        }
+    }
+
+    /// Clear all folds.
+    pub fn unfold_all(&mut self) {
+        self.folded_ranges.clear();
+    }
+
+    /// Replace all fold ranges with the given set.
+    pub fn fold_all(&mut self, ranges: Vec<(usize, usize)>) {
+        let mut ranges = ranges;
+        ranges.sort_by_key(|&(s, _)| s);
+        self.folded_ranges = ranges;
+    }
+
+    /// Check if a logical row is inside any folded range.
+    pub fn is_row_folded(&self, row: usize) -> bool {
+        self.folded_ranges
+            .iter()
+            .any(|&(start, end)| row >= start && row <= end)
+    }
+
+    /// Find the fold range containing the given row, if any.
+    pub fn fold_containing(&self, row: usize) -> Option<(usize, usize)> {
+        self.folded_ranges
+            .iter()
+            .find(|&&(start, end)| row >= start && row <= end)
+            .copied()
+    }
+
+    /// Map a logical row to a display row (accounting for hidden folded rows).
+    /// Returns the display row index, where folded rows are skipped.
+    pub fn logical_to_display_row(&self, logical_row: usize) -> usize {
+        let mut display = logical_row;
+        for &(start, end) in &self.folded_ranges {
+            if logical_row > end {
+                // Entire fold range is before this row; subtract hidden rows
+                display -= end - start + 1;
+            } else if logical_row >= start {
+                // Row is inside a fold; map to the heading line (row before the fold)
+                display = start.saturating_sub(1);
+                // Subtract all folds before this point
+                for &(s, e) in &self.folded_ranges {
+                    if s < start {
+                        display -= e - s + 1;
+                    }
+                }
+                return display;
+            } else {
+                // Fold range starts after this row; no more adjustments needed
+                break;
+            }
+        }
+        display
+    }
+
+    /// Map a display row to a logical row (reverse of logical_to_display_row).
+    pub fn display_to_logical_row(&self, display_row: usize) -> usize {
+        let mut logical = display_row;
+        let mut remaining = display_row;
+        let mut prev_fold_end: Option<usize> = None;
+
+        for &(start, end) in &self.folded_ranges {
+            let fold_size = end - start + 1;
+            // How many logical rows before this fold?
+            let logical_before_fold = start.saturating_sub(prev_fold_end.map_or(0, |e| e + 1));
+            if remaining < logical_before_fold {
+                // Target is before this fold
+                break;
+            }
+            remaining -= logical_before_fold;
+            logical += fold_size;
+            // Skip past the fold in logical space
+            prev_fold_end = Some(end);
+        }
+        logical
     }
 }
 
