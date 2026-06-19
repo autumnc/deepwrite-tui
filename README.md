@@ -10,14 +10,18 @@
 ## 功能
 
 - **雙模式介面** — 左側瀏覽檔案，右側編輯
-- **專注模式（Focus Mode）** — 句子、段落、打字機三種淡化模式，幫助你集中注意力
+- **大綱面板** — Ctrl+O 開啟標題大綱，j/k 導航，Enter 跳轉
+- **專注模式（Focus Mode）** — 句子、段落、打字機、當前行四種淡化模式，幫助集中注意力
 - **非模態編輯** — 打開就能打字，方向鍵移動，Emacs 風格快捷鍵（Ctrl+A/E 跳到行首/行尾）
-- **Markdown 語法高亮** — 標題、粗體、斜體、程式碼區塊、連結
-- **格式化快捷鍵** — Ctrl+B 粗體、Ctrl+I 斜體、Ctrl+1/2/3 標題
+- **Markdown 語法高亮** — 標題階層顏色（H1-H6 暖冷漸層）、粗體、斜體、刪除線、程式碼區塊、連結、引用區塊斜體
+- **格式化快捷鍵** — Ctrl+B 粗體、Ctrl+I 斜體、F1-F6 / Ctrl+1-6 標題、Ctrl+H 高亮、Ctrl+D 刪除線、Ctrl+U 底線、Ctrl+K 連結
+- **`==highlight==` 語法** — 反轉背景色的螢光筆效果
+- **`<u>underline</u>` 語法** — HTML 標籤風格的底線文字
+- **高對比主題** — `theme.mode = "high_contrast"`，針對 `#101010` 背景最佳化
 - **中日韓字數統計** — 精確的 CJK 字元計數
--	 **自動儲存** — 2 秒延遲寫入，透過暫存檔 + 原子重新命名確保安全
+- **自動儲存** — 2 秒延遲寫入，透過暫存檔 + 原子重新命名確保安全
 - **外部變更偵測** — 自動偵測其他編輯器的檔案修改
-- **淺色/深色主題** — 自動偵測系統偏好
+- **淺色/深色/高對比主題** — 自動偵測系統偏好
 - **可自訂** — `~/.config/deepwrite/config.toml`
 
 ## 安裝
@@ -27,7 +31,6 @@
 ```bash
 brew install tomdhyang/tap/deepwrite
 ```
-
 
 ### 預編譯 Binary
 
@@ -44,7 +47,6 @@ cargo install --git https://github.com/tomdhyang/deepwrite-tui.git
 需要 [Rust](https://rustup.rs/)（建議使用最新穩定版）。
 
 ## 使用方式
-aaa
 
 ```bash
 # 開啟目前目錄
@@ -77,17 +79,26 @@ deepwrite README.md
 | 按鍵 | 動作 |
 |------|------|
 | `Esc` | 回到瀏覽模式 |
+| `Ctrl+O` | 開啟 / 切換大綱面板 |
+| `Ctrl+E` | 切換檔案瀏覽面板 |
+| `Ctrl+F` | 循環專注模式 |
 | `Ctrl+B` | 粗體 |
-| `Ctrl+I` | 斜體 |
-| `Ctrl+1/2/3` | 標題 1/2/3 |
-| `Ctrl+A` | 跳到行首 |
-| `Ctrl+E` | 跳到行尾 |
+| `Ctrl+I` / `Ctrl+T` | 斜體 |
+| `F1-F6` / `Ctrl+1-6` | 標題層級 1-6 |
+| `Ctrl+H` | ==高亮== |
+| `Ctrl+D` | ~~刪除線~~ |
+| `Ctrl+U` | 底線 |
+| `Ctrl+K` | 插入連結 |
+| `Ctrl+A` | 全選 |
 | `Ctrl+C` | 複製 |
 | `Ctrl+V` | 貼上 |
+| `Ctrl+X` | 剪下 |
 | `Ctrl+Z` | 復原 |
+| `Ctrl+Y` | 重做 |
+| `Ctrl+S` | 手動儲存 |
 
 ## 設定
-====
+
 設定檔位於 `~/.config/deepwrite/config.toml`：
 
 ```toml
@@ -95,10 +106,10 @@ deepwrite README.md
 tab_width = 4
 
 [focus]
-mode = "sentence"     # "none", "sentence", "paragraph", "typewriter"
+mode = "sentence"     # "off", "sentence", "paragraph", "typewriter", "line"
 
 [theme]
-mode = "auto"         # "auto", "light", "dark"
+mode = "auto"         # "auto", "light", "dark", "high_contrast"
 
 [browser]
 show_hidden = false
