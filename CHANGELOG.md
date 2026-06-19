@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0 (2026-06-19)
+
+### Added
+
+- **Outline panel** — Ctrl+O toggles a heading outline; j/k navigate, Enter jumps, Esc dismisses. Auto-tracks cursor position
+- **Fold infrastructure** — edtui supports fold ranges with logical/display row mapping, fold-aware viewport scrolling, and "⋯" fold indicators
+
+### Fixed
+
+- **F1-F6 heading shortcuts** now place cursor at end of line after setting heading level
+
 ## 0.4.0 (2026-06-07)
 
 ### Added
