@@ -2,7 +2,7 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
 
 use crate::theme::Theme;
@@ -32,8 +32,6 @@ const HELP_TEXT: &str = "\
 
 /// Render the help overlay across the full screen.
 pub fn render_help(frame: &mut Frame, area: Rect, theme: &Theme) {
-    frame.render_widget(Clear, area);
-
     let block = Block::default()
         .title(" Help ")
         .borders(Borders::ALL)
