@@ -21,7 +21,7 @@
 - **中日韓字數統計** — 精確的 CJK 字元計數
 - **自動儲存** — 2 秒延遲寫入，透過暫存檔 + 原子重新命名確保安全
 - **外部變更偵測** — 自動偵測其他編輯器的檔案修改
-- **淺色/深色/高對比主題** — 自動偵測系統偏好
+- **淺色/深色/高對比主題** — 自動偵測系統偏好，按 `t` 循環切換
 - **可自訂** — `~/.config/deepwrite/config.toml`
 
 ## 安裝
@@ -70,7 +70,10 @@ deepwrite README.md
 | `a` | 新增檔案或目錄 |
 | `r` | 重新命名 |
 | `d` | 刪除 |
-| `y` | 複製檔案路徑 |
+| `/` | 搜尋 / 過濾 |
+| `.` | 切換隱藏檔案 |
+| `t` | 循環主題 |
+| `cc` | 複製檔案路徑 |
 | `?` | 說明 |
 | `q` | 離開 |
 
@@ -109,7 +112,7 @@ tab_width = 4
 mode = "sentence"     # "off", "sentence", "paragraph", "typewriter", "line"
 
 [theme]
-mode = "auto"         # "auto", "light", "dark", "high_contrast"
+mode = "system"       # "system", "light", "dark", "high_contrast"
 
 [browser]
 show_hidden = false
