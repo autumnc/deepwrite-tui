@@ -527,6 +527,17 @@ impl App {
         self.browser_visibility_before_focus = self.show_browser;
     }
 
+    fn cycle_theme(&mut self) {
+        self.config.theme.mode = match self.config.theme.mode.as_str() {
+            "dark" => "light".into(),
+            "light" => "high_contrast".into(),
+            "high_contrast" => "dark".into(),
+            _ => "dark".into(),
+        };
+        self.theme = Theme::from_config(&self.config.theme.mode, self.config.focus.opacity);
+        self.set_status_message(format!("Theme: {}", self.config.theme.mode));
+    }
+
     fn set_focus_mode(&mut self, focus_mode: FocusMode) {
         if self.focus_mode == FocusMode::Off && focus_mode != FocusMode::Off {
             self.browser_visibility_before_focus = self.show_browser;
@@ -956,6 +967,9 @@ impl App {
             }
             KeyCode::Char('?') => {
                 self.show_help = true;
+            }
+            KeyCode::Char('t') => {
+                self.cycle_theme();
             }
             _ => {}
         }

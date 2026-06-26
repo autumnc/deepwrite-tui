@@ -84,11 +84,11 @@ impl Theme {
     /// Dark theme colors.
     pub fn dark() -> Self {
         Self {
-            bg: Color::Rgb(0x1D, 0x1F, 0x20),
+            bg: Color::Rgb(0x26, 0x26, 0x26),
             fg: Color::Rgb(0xC5, 0xC9, 0xC6),
             accent: Color::Rgb(0x15, 0xBD, 0xEC),
 
-            status_bar_bg: Color::Rgb(0x16, 0x18, 0x19),
+            status_bar_bg: Color::Rgb(0x1E, 0x1E, 0x1E),
             status_bar_fg: Color::Rgb(0x66, 0x66, 0x66),
 
             dimmed_fg: Color::Rgb(0x55, 0x55, 0x55),
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn config_opacity_updates_dimmed_color() {
         let theme = Theme::from_config("dark", 10);
-        assert_eq!(theme.dimmed_fg, Color::Rgb(0x2E, 0x30, 0x31));
+        assert_eq!(theme.dimmed_fg, Color::Rgb(0x36, 0x36, 0x36));
         assert_eq!(theme.md_heading_1, Color::Rgb(0x7A, 0xA4, 0xC2));
     }
 }
