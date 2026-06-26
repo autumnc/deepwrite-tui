@@ -20,9 +20,9 @@ const HELP_TEXT: &str = "\
  cc          Copy path           Ctrl+U       Strikethrough
  /           Search/filter       Ctrl+K       Insert link
  .           Toggle hidden       Ctrl+1..6    Heading level
- Ctrl+E      Toggle browser      F1..F6       Heading fallback
- q           Quit                Ctrl+Y       Redo
-                                 Ctrl+A       Select all
+ t           Cycle theme         F1..F6       Heading fallback
+ Ctrl+E      Toggle browser      Ctrl+Y       Redo
+ q           Quit                Ctrl+A       Select all
                                  Ctrl+Z       Undo
                                  Ctrl+C       Copy
                                  Ctrl+X       Cut
