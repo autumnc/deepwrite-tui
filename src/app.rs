@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
+use edtui::{EditorMode, LineNumbers};
 use ratatui::{prelude::*, widgets::Block};
 
 use deepwrite::browser::actions;
@@ -32,89 +33,6 @@ use deepwrite::ui::help::render_help;
 use deepwrite::ui::layout::compute_layout;
 use deepwrite::ui::outline::render_outline;
 
-/// Map Zhuyin (Bopomofo) characters back to their ASCII key equivalents.
-/// When a CJK input method is active on macOS, pressing Ctrl+F sends
-/// Ctrl+ㄑ instead of Ctrl+F. This table reverses the standard Zhuyin
-/// keyboard layout so Ctrl shortcuts work regardless of input method.
-fn normalize_zhuyin(c: char) -> char {
-    // Standard Zhuyin (大千/Dachen) keyboard layout mapping
-    match c {
-        // Row 1 (number row): 1 2 _ _ 5 _ _ 8 9 0 - =
-        'ㄅ' => '1',
-        'ㄉ' => '2',
-        'ㄓ' => '5',
-        'ㄚ' => '8',
-        'ㄞ' => '9',
-        'ㄢ' => '0',
-        'ㄦ' => '-',
-        // Row 2 (qwerty): q w e r t y u i o p
-        'ㄆ' => 'q',
-        'ㄊ' => 'w',
-        'ㄍ' => 'e',
-        'ㄐ' => 'r',
-        'ㄔ' => 't',
-        'ㄗ' => 'y',
-        'ㄧ' => 'u',
-        'ㄛ' => 'i',
-        'ㄟ' => 'o',
-        'ㄣ' => 'p',
-        // Row 3 (asdf): a s d f g h j k l ;
-        'ㄇ' => 'a',
-        'ㄋ' => 's',
-        'ㄎ' => 'd',
-        'ㄑ' => 'f',
-        'ㄕ' => 'g',
-        'ㄘ' => 'h',
-        'ㄨ' => 'j',
-        'ㄜ' => 'k',
-        'ㄠ' => 'l',
-        'ㄤ' => ';',
-        // Row 4 (zxcv): z x c v b n m , . /
-        'ㄈ' => 'z',
-        'ㄌ' => 'x',
-        'ㄏ' => 'c',
-        'ㄒ' => 'v',
-        'ㄖ' => 'b',
-        'ㄙ' => 'n',
-        'ㄩ' => 'm',
-        'ㄝ' => ',',
-        'ㄡ' => '.',
-        'ㄥ' => '/',
-        // Full-width punctuation
-        '，' => ',',
-        '。' => '.',
-        '／' => '/',
-        '；' => ';',
-        other => other,
-    }
-}
-
-/// Normalize a KeyEvent: map Zhuyin characters back to ASCII.
-/// In Edit mode, only applies when Ctrl is held (so normal typing isn't affected).
-fn normalize_key(key: KeyEvent) -> KeyEvent {
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
-        if let KeyCode::Char(c) = key.code {
-            let normalized = normalize_zhuyin(c);
-            if normalized != c {
-                return KeyEvent::new(KeyCode::Char(normalized), key.modifiers);
-            }
-        }
-    }
-    key
-}
-
-/// Normalize a KeyEvent for Browse mode: always map Zhuyin to ASCII,
-/// since Browse mode uses single-key shortcuts (j, k, ., etc.) that
-/// don't involve typing text.
-fn normalize_browse_key(key: KeyEvent) -> KeyEvent {
-    if let KeyCode::Char(c) = key.code {
-        let normalized = normalize_zhuyin(c);
-        if normalized != c {
-            return KeyEvent::new(KeyCode::Char(normalized), key.modifiers);
-        }
-    }
-    key
-}
 use deepwrite::ui::status_bar::render_status_bar;
 
 /// The current interaction mode.
@@ -273,7 +191,12 @@ impl App {
         let show_hidden = config.browser.show_hidden;
         let editor_line_width = config.editor.line_width;
         let navigator = Navigator::new(&start_dir, show_hidden);
-        let editor = EditorWrapper::new();
+        let ln = match config.editor.line_numbers.as_str() {
+            "absolute" => LineNumbers::Absolute,
+            "relative" => LineNumbers::Relative,
+            _ => LineNumbers::None,
+        };
+        let editor = EditorWrapper::new(ln);
         let auto_save = AutoSave::new(config.editor.auto_save_delay_ms);
         let focus_mode = FocusMode::from_config(&config.focus.mode);
         let data_dir = dirs::data_dir()
@@ -536,6 +459,50 @@ impl App {
     fn toggle_browser_visibility(&mut self) {
         self.show_browser = !self.show_browser;
         self.browser_visibility_before_focus = self.show_browser;
+    }
+
+    fn open_in_system_editor(&mut self) {
+        let content = self.editor.get_content();
+        // Save first if file is tracked
+        if self.auto_save.path.is_some() {
+            if let Err(err) = self.persist_content(&content, true) {
+                self.set_status_message(format!("Save failed: {err}"));
+                return;
+            }
+        }
+        // Determine editor from env
+        let editor = std::env::var("VISUAL")
+            .or_else(|_| std::env::var("EDITOR"))
+            .unwrap_or_else(|_| "vi".to_string());
+        let path: PathBuf = self
+            .auto_save
+            .path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("untitled.md"));
+        match std::process::Command::new(&editor).arg(path).status() {
+            Ok(status) if status.success() => {
+                if let Err(err) = self.reload_from_disk() {
+                    self.set_status_message(format!("Reload failed: {err}"));
+                }
+                self.editor.state.mode = EditorMode::Insert;
+            }
+            Ok(_) => {
+                self.set_status_message(format!("Editor '{editor}' exited with error"));
+            }
+            Err(err) => {
+                self.set_status_message(format!("Failed to run '{editor}': {err}"));
+            }
+        }
+    }
+
+    fn reload_from_disk(&mut self) -> anyhow::Result<()> {
+        if let Some(path) = &self.auto_save.path {
+            let content = std::fs::read_to_string(path)?;
+            self.editor.load_content(&content);
+            self.auto_save.last_edit = None;
+            self.pending_external_change = false;
+        }
+        Ok(())
     }
 
     fn cycle_theme(&mut self) {
@@ -887,8 +854,6 @@ impl App {
             return;
         }
 
-        let key = normalize_browse_key(key);
-
         // Help screen intercepts all keys when visible
         if self.show_help {
             match key.code {
@@ -1158,13 +1123,17 @@ impl App {
 
     /// Handle key events in Edit mode.
     ///
-    /// We intercept Esc, Ctrl+E, and Ctrl+S before passing the event to edtui.
+    /// We intercept Esc, Ctrl+E, Ctrl+O, Ctrl+W, and Ctrl+S before passing the event to edtui.
     fn handle_edit_key(&mut self, key: KeyEvent, event: Event) {
-        let key = normalize_key(key);
-
         // Ctrl+E toggles browser panel
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('e') {
             self.toggle_browser_visibility();
+            return;
+        }
+
+        // Ctrl+W opens current file in external system editor
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('w') {
+            self.open_in_system_editor();
             return;
         }
 
@@ -2027,20 +1996,6 @@ mod tests {
     }
 
     #[test]
-    fn browse_prompt_keeps_zhuyin_input_verbatim() {
-        let tmp = TempDir::new().unwrap();
-        let mut app = test_app(&tmp);
-        app.prompt = BrowserPrompt::Create(PromptInput::empty());
-
-        let key = KeyEvent::new(KeyCode::Char('ㄅ'), KeyModifiers::NONE);
-        app.handle_browse_key(key);
-
-        assert_eq!(
-            app.prompt,
-            BrowserPrompt::Create(PromptInput::new("ㄅ".to_string()))
-        );
-    }
-
     #[test]
     fn function_keys_toggle_heading_levels() {
         let tmp = TempDir::new().unwrap();

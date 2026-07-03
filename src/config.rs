@@ -13,6 +13,8 @@ pub struct EditorConfig {
     pub auto_save: bool,
     /// Delay in milliseconds before auto-saving after a change.
     pub auto_save_delay_ms: u64,
+    /// Line numbers mode: "none", "absolute", or "relative".
+    pub line_numbers: String,
 }
 
 impl Default for EditorConfig {
@@ -21,6 +23,7 @@ impl Default for EditorConfig {
             line_width: 72,
             auto_save: true,
             auto_save_delay_ms: 500,
+            line_numbers: "none".to_string(),
         }
     }
 }

@@ -11,7 +11,8 @@ pub mod word_count;
 
 use crossterm::event::Event;
 use edtui::{
-    EditorEventHandler, EditorMode, EditorState, EditorTheme, EditorView, Highlight, Index2, Lines,
+    EditorEventHandler, EditorMode, EditorState, EditorTheme, EditorView, Highlight, Index2,
+    LineNumbers, Lines,
 };
 use ratatui::prelude::*;
 
@@ -27,11 +28,12 @@ pub struct EditorWrapper {
     pub state: EditorState,
     pub handler: EditorEventHandler,
     highlighter: MarkdownHighlighter,
+    pub line_numbers: LineNumbers,
 }
 
 impl Default for EditorWrapper {
     fn default() -> Self {
-        Self::new()
+        Self::new(LineNumbers::None)
     }
 }
 
@@ -39,7 +41,7 @@ impl EditorWrapper {
     /// Create a new editor with our custom non-modal keymap.
     ///
     /// The editor starts in Insert mode so the user can type immediately.
-    pub fn new() -> Self {
+    pub fn new(line_numbers: LineNumbers) -> Self {
         let key_handler = deepwrite_keymap();
         let handler = EditorEventHandler::new(key_handler);
 
@@ -51,6 +53,7 @@ impl EditorWrapper {
             state,
             handler,
             highlighter: MarkdownHighlighter::new(),
+            line_numbers,
         }
     }
 
@@ -175,6 +178,7 @@ impl EditorWrapper {
                 ));
             }
         }
+
     }
 
     /// Render the editor into the given area using our theme colors.
@@ -200,7 +204,8 @@ impl EditorWrapper {
 
         let view = EditorView::new(&mut self.state)
             .theme(editor_theme)
-            .wrap(true);
+            .wrap(true)
+            .line_numbers(self.line_numbers);
 
         frame.render_widget(view, area);
 
@@ -238,7 +243,7 @@ mod tests {
 
     #[test]
     fn sentence_focus_does_not_keep_heading_bright() {
-        let mut editor = EditorWrapper::new();
+        let mut editor = EditorWrapper::new(LineNumbers::None);
         editor.load_content("# Heading\n\nFirst sentence. Second sentence.");
         editor.state.cursor.row = 2;
         editor.state.cursor.col = 2;
