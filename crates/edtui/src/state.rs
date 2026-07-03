@@ -229,7 +229,11 @@ impl EditorState {
         if start > end {
             return;
         }
-        if let Some(idx) = self.folded_ranges.iter().position(|&(s, e)| s == start && e == end) {
+        if let Some(idx) = self
+            .folded_ranges
+            .iter()
+            .position(|&(s, e)| s == start && e == end)
+        {
             self.folded_ranges.remove(idx);
         } else {
             self.folded_ranges.push((start, end));

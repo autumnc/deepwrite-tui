@@ -1,3 +1,4 @@
+
 # Changelog
 
 ## 0.5.0 (2026-06-19)
@@ -16,9 +17,9 @@
 ### Added
 
 - **High-contrast theme** — optimized for `#101010` background, configurable via `theme.mode = "high_contrast"`
-- **Heading hierarchy colors** — H1-H6 each use distinct colors (warm-to-cool gradient) for visual distinction
-- **`==highlight==` syntax** — highlight text with reversed background color (highlighter pen effect)
+- **Heading hierarchy colors** — H1-H6 each use distinct colors (warm-to-cool gradient) for visual distinction- **`==highlight==` syntax** — highlight text with reversed background color (highlighter pen effect)
 - **`<u>underline</u>` syntax** — underline text support
+
 - **Line focus mode** — highlights only the current editing line, dims everything else, cursor stays vertically centered. Cycle via `Ctrl+F`
 - **Ctrl+H shortcut** — toggle highlight formatting
 - **Ctrl+D shortcut** — toggle strikethrough formatting
@@ -36,4 +37,4 @@
 
 ## 0.3.0 (2026-05-01)
 
-Initial public release.
+Initial public release

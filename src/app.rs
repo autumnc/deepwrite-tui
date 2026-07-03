@@ -20,6 +20,7 @@ use deepwrite::config::Config;
 use deepwrite::editor::centered_editor_area;
 use deepwrite::editor::focus::FocusMode;
 use deepwrite::editor::formatting;
+use deepwrite::editor::outline::{current_heading_index, extract_headings, OutlineState};
 use deepwrite::editor::word_count;
 use deepwrite::editor::EditorWrapper;
 use deepwrite::services::auto_save::AutoSave;
@@ -28,7 +29,7 @@ use deepwrite::services::file_watcher::FileWatcher;
 use deepwrite::services::update_checker;
 use deepwrite::theme::Theme;
 use deepwrite::ui::help::render_help;
-use deepwrite::editor::outline::{current_heading_index, extract_headings, OutlineState};
+use deepwrite::ui::layout::compute_layout;
 use deepwrite::ui::outline::render_outline;
 
 /// Map Zhuyin (Bopomofo) characters back to their ASCII key equivalents.
@@ -114,7 +115,6 @@ fn normalize_browse_key(key: KeyEvent) -> KeyEvent {
     }
     key
 }
-use deepwrite::ui::layout::compute_layout;
 use deepwrite::ui::status_bar::render_status_bar;
 
 /// The current interaction mode.
@@ -390,7 +390,12 @@ impl App {
     /// Draw the full UI.
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
-        let layout = compute_layout(area, self.config.browser.ratio, self.show_browser, self.outline.visible);
+        let layout = compute_layout(
+            area,
+            self.config.browser.ratio,
+            self.show_browser,
+            self.outline.visible,
+        );
 
         // Fill background
         let bg_block = Block::default().style(self.theme.base_style());
@@ -462,7 +467,13 @@ impl App {
                     self.outline.selected = idx;
                 }
             }
-            render_outline(frame, layout.outline, &self.outline, current_idx, &self.theme);
+            render_outline(
+                frame,
+                layout.outline,
+                &self.outline,
+                current_idx,
+                &self.theme,
+            );
         }
 
         // Status bar

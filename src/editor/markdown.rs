@@ -26,12 +26,16 @@ pub struct MarkdownHighlighter {
     re_strikethrough: Regex,
     re_underline: Regex,
     re_highlight: Regex,
+    re_footnote: Regex,
     // Line-level patterns
     re_heading: Regex,
     re_block_quote: Regex,
+    re_callout: Regex,
     re_unordered_list: Regex,
     re_ordered_list: Regex,
     re_task_list: Regex,
+    re_task_unchecked: Regex,
+    re_task_pending: Regex,
     re_horizontal_rule: Regex,
     re_fenced_code_start: Regex,
 }
@@ -54,11 +58,15 @@ impl MarkdownHighlighter {
             re_strikethrough: Regex::new(r"~~(.+?)~~").unwrap(),
             re_underline: Regex::new(r"<u>(.+?)</u>").unwrap(),
             re_highlight: Regex::new(r"==(.+?)==").unwrap(),
+            re_footnote: Regex::new(r"\[\^([^\]]+)\]").unwrap(),
             re_heading: Regex::new(r"^(#{1,6})\s").unwrap(),
             re_block_quote: Regex::new(r"^>\s?").unwrap(),
+            re_callout: Regex::new(r"^>\s*\[!(NOTE|TIP|WARNING|CAUTION|IMPORTANT)\]").unwrap(),
             re_unordered_list: Regex::new(r"^(\s*)([-*+])\s").unwrap(),
             re_ordered_list: Regex::new(r"^(\s*)(\d+[.)]) ").unwrap(),
-            re_task_list: Regex::new(r"^(\s*)- \[([ xX])\] ").unwrap(),
+            re_task_list: Regex::new(r"^(\s*)- \[([xX])\] ").unwrap(),
+            re_task_unchecked: Regex::new(r"^(\s*)- \[ \] ").unwrap(),
+            re_task_pending: Regex::new(r"^(\s*)- \[([~])\] ").unwrap(),
             re_horizontal_rule: Regex::new(r"^(---+|\*\*\*+|___+)\s*$").unwrap(),
             re_fenced_code_start: Regex::new(r"^```").unwrap(),
         }
@@ -126,8 +134,33 @@ impl MarkdownHighlighter {
                 continue;
             }
 
-            // Block quote marker — muted marker, italic content with distinct color
-            if let Some(m) = self.re_block_quote.find(line) {
+            // Block quote / callout
+            // Check for callout first (e.g. > [!NOTE]) before plain block quote
+            if let Some(m) = self.re_callout.find(line) {
+                let kind = m.as_str().to_uppercase();
+                let callout_color = if kind.contains("NOTE") {
+                    theme.md_heading_5
+                } else if kind.contains("TIP") {
+                    theme.md_heading_4
+                } else if kind.contains("WARNING") {
+                    theme.md_heading_2
+                } else if kind.contains("CAUTION") {
+                    theme.md_heading_3
+                } else if kind.contains("IMPORTANT") {
+                    theme.md_heading_1
+                } else {
+                    theme.md_muted
+                };
+                ranges.push(HighlightRange {
+                    start_row: row,
+                    start_col: 0,
+                    end_row: row,
+                    end_col: line_char_len,
+                    style: Style::default()
+                        .fg(callout_color)
+                        .add_modifier(Modifier::BOLD),
+                });
+            } else if let Some(m) = self.re_block_quote.find(line) {
                 let marker_end = m.end();
                 let marker_char_end = char_col(line, marker_end);
                 ranges.push(HighlightRange {
@@ -154,12 +187,31 @@ impl MarkdownHighlighter {
 
             // Task list (must check before unordered list since it's more specific)
             if let Some(m) = self.re_task_list.find(line) {
+                // Checked task [x]: green
+                ranges.push(HighlightRange {
+                    start_row: row,
+                    start_col: 0,
+                    end_row: row,
+                    end_col: m.end(),
+                    style: Style::default().fg(theme.md_heading_4),
+                });
+            } else if let Some(m) = self.re_task_unchecked.find(line) {
+                // Unchecked task [ ]: muted/red
                 ranges.push(HighlightRange {
                     start_row: row,
                     start_col: 0,
                     end_row: row,
                     end_col: m.end(),
                     style: Style::default().fg(theme.md_muted),
+                });
+            } else if let Some(m) = self.re_task_pending.find(line) {
+                // Pending task [~]: yellow/orange
+                ranges.push(HighlightRange {
+                    start_row: row,
+                    start_col: 0,
+                    end_row: row,
+                    end_col: m.end(),
+                    style: Style::default().fg(theme.md_heading_2),
                 });
             } else if let Some(m) = self.re_unordered_list.find(line) {
                 // Unordered list marker
@@ -270,6 +322,19 @@ impl MarkdownHighlighter {
                 });
             }
 
+            // Footnote references: [^label]
+            for m in self.re_footnote.find_iter(line) {
+                ranges.push(HighlightRange {
+                    start_row: row,
+                    start_col: char_col(line, m.start()),
+                    end_row: row,
+                    end_col: char_col(line, m.end()),
+                    style: Style::default()
+                        .fg(theme.md_muted)
+                        .add_modifier(Modifier::DIM),
+                });
+            }
+
             // Highlight: ==text== — reversed colors for highlighter effect
             for m in self.re_highlight.find_iter(line) {
                 ranges.push(HighlightRange {
@@ -277,9 +342,7 @@ impl MarkdownHighlighter {
                     start_col: char_col(line, m.start()),
                     end_row: row,
                     end_col: char_col(line, m.end()),
-                    style: Style::default()
-                        .bg(theme.md_highlight_bg)
-                        .fg(theme.bg),
+                    style: Style::default().bg(theme.md_highlight_bg).fg(theme.bg),
                 });
             }
 
@@ -481,11 +544,15 @@ fn main() {}
             .add_modifier(Modifier::BOLD);
 
         assert!(
-            ranges.iter().any(|r| r.start_row == 0 && r.style == h1_style),
+            ranges
+                .iter()
+                .any(|r| r.start_row == 0 && r.style == h1_style),
             "H1 should use heading_1 color"
         );
         assert!(
-            ranges.iter().any(|r| r.start_row == 5 && r.style == h6_style),
+            ranges
+                .iter()
+                .any(|r| r.start_row == 5 && r.style == h6_style),
             "H6 should use heading_6 color"
         );
     }
@@ -497,12 +564,9 @@ fn main() {}
         let mut hl = MarkdownHighlighter::new();
         let ranges = hl.parse(source, &theme);
 
-        let has_highlight = ranges.iter().any(|r| {
-            r.style
-                == Style::default()
-                    .bg(theme.md_highlight_bg)
-                    .fg(theme.bg)
-        });
+        let has_highlight = ranges
+            .iter()
+            .any(|r| r.style == Style::default().bg(theme.md_highlight_bg).fg(theme.bg));
         assert!(has_highlight, "Expected highlight with reversed colors");
     }
 

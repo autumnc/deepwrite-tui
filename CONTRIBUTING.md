@@ -34,7 +34,7 @@ cargo clippy         # Lint
 
 This is a Cargo workspace:
 - Root (`deepwrite`) — the main application
-- `crates/edtui` — forked text editor widget (internal dependency)
+- `crates/edtui` — forked text editor widget (internal depqendency)
 
 ## Guidelines
 
