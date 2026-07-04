@@ -169,6 +169,8 @@ pub struct App {
     /// True when `c` was pressed and we're waiting for the second key.
     pending_c_prefix: bool,
     pub outline: OutlineState,
+    /// Set to true after external editor exits to force terminal clear + full redraw.
+    needs_terminal_clear: bool,
 }
 
 impl App {
@@ -231,6 +233,7 @@ impl App {
             update_available: None,
             pending_c_prefix: false,
             outline: OutlineState::new(),
+            needs_terminal_clear: false,
         };
         app.preview_selected_file();
         app
@@ -259,6 +262,10 @@ impl App {
     ) -> anyhow::Result<()> {
         while !self.should_quit {
             self.prune_status_message();
+            if self.needs_terminal_clear {
+                terminal.clear()?;
+                self.needs_terminal_clear = false;
+            }
             terminal.draw(|frame| self.draw(frame))?;
 
             // Poll-based event loop: check for input every 100ms
@@ -493,6 +500,7 @@ impl App {
                 self.set_status_message(format!("Failed to run '{editor}': {err}"));
             }
         }
+        self.needs_terminal_clear = true;
     }
 
     fn reload_from_disk(&mut self) -> anyhow::Result<()> {
