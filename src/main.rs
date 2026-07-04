@@ -11,7 +11,8 @@ use crossterm::{
         PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
+        LeaveAlternateScreen},
 };
 use ratatui::prelude::*;
 
@@ -123,10 +124,11 @@ fn restore_terminal(supports_keyboard_enhancement: bool) -> anyhow::Result<()> {
             io::stdout(),
             PopKeyboardEnhancementFlags,
             LeaveAlternateScreen,
+            Clear(ClearType::All),
             DisableMouseCapture
         )?;
     } else {
-        execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+        execute!(io::stdout(), LeaveAlternateScreen, Clear(ClearType::All), DisableMouseCapture)?;
     }
     Ok(())
 }
